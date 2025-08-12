@@ -72,18 +72,29 @@ async def message_handler(event):
         USER_DATA[user_id]['prompt'] = event.text
         WAITING_FOR[user_id] = 'image'
         await event.respond("Please send an image:")
+        return
         
     elif state == 'image':
         if not await is_image(event.message):
             return await event.respond("Please send a valid image file.")
         
         # Download image
-        download_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}.jpg")
-        await event.message.download_media(download_path)
-        
-        USER_DATA[user_id]['image_path'] = download_path
-        WAITING_FOR[user_id] = 'frames'
-        await event.respond("Please enter the number of frames (2-125):")
+        try:
+            download_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}.jpg")
+            await event.message.download_media(download_path)
+            
+            # Verify the file was actually downloaded
+            if not os.path.exists(download_path):
+                raise Exception("Failed to save the image")
+            
+            USER_DATA[user_id]['image_path'] = download_path
+            WAITING_FOR[user_id] = 'frames'
+            await event.respond("Please enter the number of frames (2-125):")
+        except Exception as e:
+            await event.respond(f"Failed to save the image: {str(e)}")
+            WAITING_FOR[user_id] = 'image'
+            await event.respond("Please try sending the image again:")
+        return
         
     elif state == 'frames':
         try:
@@ -93,12 +104,29 @@ async def message_handler(event):
         except ValueError:
             return await event.respond("Please enter a valid number between 2 and 125.")
         
+        if 'prompt' not in USER_DATA[user_id] or 'image_path' not in USER_DATA[user_id]:
+            # Something went wrong with the state, restart
+            WAITING_FOR[user_id] = 'prompt'
+            USER_DATA[user_id] = {}
+            await event.respond("Sorry, something went wrong. Let's start over.")
+            await event.respond("Please enter a prompt describing the video you want to generate:")
+            return
+            
         USER_DATA[user_id]['frames'] = frames
         WAITING_FOR[user_id] = None
         
         # Process the request
         processing_msg = await event.respond("Processing your request... This may take a while.")
         try:
+            # Verify ComfyUI connection first
+            import requests
+            try:
+                health_check = requests.get(COMFYUI_URL, timeout=5)
+                if health_check.status_code != 200:
+                    raise Exception(f"ComfyUI server returned status {health_check.status_code}")
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"Cannot connect to ComfyUI server: {str(e)}")
+            
             prompt_id = await process_image_to_video(
                 USER_DATA[user_id]['prompt'],
                 USER_DATA[user_id]['image_path'],
@@ -118,19 +146,22 @@ async def message_handler(event):
             else:
                 await event.respond("No output video found.")
             
-        except TimeoutError:
-            await event.respond("The generation process timed out. Please try again.")
         except Exception as e:
             await event.respond(f"An error occurred: {str(e)}")
         finally:
             await processing_msg.delete()
             if user_id in USER_DATA:
                 try:
-                    os.remove(USER_DATA[user_id]['image_path'])
+                    if 'image_path' in USER_DATA[user_id]:
+                        os.remove(USER_DATA[user_id]['image_path'])
                 except:
                     pass
                 del USER_DATA[user_id]
 
 if __name__ == "__main__":
+    # Ensure storage directories exist
+    os.makedirs(COMFYUI_INPUT_DIR, exist_ok=True)
+    os.makedirs(COMFYUI_OUTPUT_DIR, exist_ok=True)
+    
     print("Bot started...")
     bot.run_until_disconnected() 

@@ -4,7 +4,9 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    network_mode: host  # Use host networking to access ComfyUI
     volumes:
       - ./.env:/app/.env
       - /storage/comfyui/input:/storage/comfyui/input
-      - /storage/comfyui/output:/storage/comfyui/output 
+      - /storage/comfyui/output:/storage/comfyui/output
+    user: "${UID:-1000}:${GID:-1000}"  # Use host user's UID/GID 
