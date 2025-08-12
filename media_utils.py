@@ -32,11 +32,15 @@ async def get_image_dimensions(file_path):
     with Image.open(file_path) as img:
         width, height = img.size
         is_vertical = height > width
-        return (720, 1280) if is_vertical else (1280, 720)
+        # For vertical images, swap width and height to maintain aspect ratio
+        if is_vertical:
+            return 720, 1280  # vertical orientation (width=720, height=1280)
+        else:
+            return 1280, 720  # horizontal orientation (width=1280, height=720)
 
 async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, workflow_file):
     """Process image using ComfyUI workflow"""
-    width, height = await get_image_dimensions(image_path)
+    target_width, target_height = await get_image_dimensions(image_path)
     
     # Load workflow template
     with open(workflow_file, 'r') as f:
@@ -49,12 +53,14 @@ async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, work
                 if isinstance(value, str) and "doing gymnastics" in value:
                     obj[key] = prompt
                     print(f"Updated prompt to: {prompt}")
-                elif value in [720, "720"]:
-                    obj[key] = height
-                    print(f"Updated height to: {height}")
-                elif value in [1280, "1280"]:
-                    obj[key] = width
-                    print(f"Updated width to: {width}")
+                elif value in [720, "720", 1280, "1280"]:
+                    # Update dimension based on whether it's width or height in the workflow
+                    if key.lower().endswith('width'):
+                        obj[key] = target_width
+                        print(f"Updated width to: {target_width}")
+                    elif key.lower().endswith('height'):
+                        obj[key] = target_height
+                        print(f"Updated height to: {target_height}")
                 elif value in [101, "101"]:
                     obj[key] = n_frames
                     print(f"Updated frames to: {n_frames}")
