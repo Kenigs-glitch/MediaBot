@@ -5,6 +5,7 @@ import asyncio
 import requests
 from PIL import Image
 from pathlib import Path
+from datetime import datetime
 from telethon.tl.types import DocumentAttributeFilename
 
 async def is_image(message):
@@ -47,14 +48,19 @@ async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, work
             for key, value in obj.items():
                 if isinstance(value, str) and "doing gymnastics" in value:
                     obj[key] = prompt
+                    print(f"Updated prompt to: {prompt}")
                 elif value in [720, "720"]:
                     obj[key] = height
+                    print(f"Updated height to: {height}")
                 elif value in [1280, "1280"]:
                     obj[key] = width
+                    print(f"Updated width to: {width}")
                 elif value in [101, "101"]:
                     obj[key] = n_frames
-                elif isinstance(value, str) and value.endswith(('.png', '.jpg', '.jpeg')):
+                    print(f"Updated frames to: {n_frames}")
+                elif isinstance(value, str) and value == "combined_opencv_last_frame.png":
                     obj[key] = os.path.basename(image_path)
+                    print(f"Updated input image to: {os.path.basename(image_path)}")
                 else:
                     update_workflow_params(value)
         elif isinstance(obj, list):
@@ -93,8 +99,15 @@ async def wait_for_generation(prompt_id, comfyui_url, timeout):
 
 def get_latest_video(output_dir):
     """Get the latest video file from the output directory"""
-    output_dir = Path(output_dir)
+    today = datetime.now().strftime('%Y-%m-%d')
+    output_dir = Path(output_dir) / today
+    
+    if not output_dir.exists():
+        return None
+        
     video_files = list(output_dir.glob('*.mp4'))
     if video_files:
-        return max(video_files, key=lambda x: x.stat().st_mtime)
+        latest_video = max(video_files, key=lambda x: x.stat().st_mtime)
+        print(f"Found video: {latest_video}")
+        return latest_video
     return None 

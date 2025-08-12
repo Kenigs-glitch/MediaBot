@@ -1,4 +1,6 @@
 import os
+import json
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
@@ -10,6 +12,13 @@ from media_utils import (
     wait_for_generation,
     get_latest_video
 )
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -69,9 +78,11 @@ async def message_handler(event):
         return
     
     state = WAITING_FOR[user_id]
+    logger.info(f"Processing state '{state}' for user {user_id}")
     
     if state == 'prompt':
         USER_DATA[user_id]['prompt'] = event.text
+        logger.info(f"Saved prompt: {event.text}")
         WAITING_FOR[user_id] = 'image'
         await event.respond("Please send an image:")
         return
@@ -89,10 +100,12 @@ async def message_handler(event):
             if not os.path.exists(download_path):
                 raise Exception("Failed to save the image")
             
+            logger.info(f"Saved image to: {download_path}")
             USER_DATA[user_id]['image_path'] = download_path
             WAITING_FOR[user_id] = 'frames'
             await event.respond("Please enter the number of frames (2-125):")
         except Exception as e:
+            logger.error(f"Failed to save image: {str(e)}")
             await event.respond(f"Failed to save the image: {str(e)}")
             WAITING_FOR[user_id] = 'image'
             await event.respond("Please try sending the image again:")
@@ -104,7 +117,7 @@ async def message_handler(event):
             if not 2 <= frames <= 125:
                 raise ValueError()
         except ValueError:
-            return await event.respond("Please enter a valid number between 2 and 125.")
+            return await event.respond("Please enter a valid number between 2-125.")
         
         if 'prompt' not in USER_DATA[user_id] or 'image_path' not in USER_DATA[user_id]:
             # Something went wrong with the state, restart
@@ -120,6 +133,12 @@ async def message_handler(event):
         # Process the request
         processing_msg = await event.respond("Processing your request... This may take a while.")
         try:
+            # Log current state
+            logger.info(f"Processing request for user {user_id}:")
+            logger.info(f"Prompt: {USER_DATA[user_id]['prompt']}")
+            logger.info(f"Image: {USER_DATA[user_id]['image_path']}")
+            logger.info(f"Frames: {frames}")
+            
             # Verify ComfyUI connection first
             import requests
             try:
@@ -137,18 +156,25 @@ async def message_handler(event):
                 WORKFLOW_FILE
             )
             
+            logger.info(f"Got prompt ID: {prompt_id}")
+            
             # Wait for completion
             await wait_for_generation(prompt_id, COMFYUI_URL, GENERATION_TIMEOUT)
+            logger.info("Generation completed")
             
             # Find and send the output video
             latest_video = get_latest_video(COMFYUI_OUTPUT_DIR)
             if latest_video:
+                logger.info(f"Sending video: {latest_video}")
                 await bot.send_file(event.chat_id, str(latest_video))
                 os.remove(str(latest_video))
+                logger.info("Video sent and cleaned up")
             else:
+                logger.error("No output video found")
                 await event.respond("No output video found.")
             
         except Exception as e:
+            logger.error(f"Error during processing: {str(e)}")
             await event.respond(f"An error occurred: {str(e)}")
         finally:
             await processing_msg.delete()
@@ -156,6 +182,7 @@ async def message_handler(event):
                 try:
                     if 'image_path' in USER_DATA[user_id]:
                         os.remove(USER_DATA[user_id]['image_path'])
+                        logger.info("Cleaned up input image")
                 except:
                     pass
                 del USER_DATA[user_id]
@@ -165,5 +192,5 @@ if __name__ == "__main__":
     os.makedirs(COMFYUI_INPUT_DIR, exist_ok=True)
     os.makedirs(COMFYUI_OUTPUT_DIR, exist_ok=True)
     
-    print("Bot started...")
+    logger.info("Bot started...")
     bot.run_until_disconnected() 
