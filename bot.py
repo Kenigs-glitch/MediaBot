@@ -56,17 +56,6 @@ async def start_handler(event):
     keyboard = [[Button.text("Image to Video 🎬")]]
     await event.respond("Welcome! Choose an option:", buttons=keyboard)
 
-@bot.on(events.NewMessage(pattern='Image to Video 🎬'))
-async def img2vid_handler(event):
-    """Handle Image to Video conversion request"""
-    if not is_authorized(event.sender_id):
-        return
-    
-    WAITING_FOR[event.sender_id] = 'prompt'
-    USER_DATA[event.sender_id] = {}
-    
-    await event.respond("Please enter a prompt describing the video you want to generate:")
-
 @bot.on(events.NewMessage())
 async def message_handler(event):
     """Handle all other messages"""
@@ -74,6 +63,14 @@ async def message_handler(event):
         return
     
     user_id = event.sender_id
+    
+    # Handle the button press
+    if event.text == "Image to Video 🎬":
+        WAITING_FOR[user_id] = 'prompt'
+        USER_DATA[user_id] = {}
+        await event.respond("Please enter a prompt describing the video you want to generate:")
+        return
+    
     if user_id not in WAITING_FOR:
         return
     
