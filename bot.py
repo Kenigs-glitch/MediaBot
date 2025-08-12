@@ -26,7 +26,9 @@ GENERATION_TIMEOUT = int(os.getenv('GENERATION_TIMEOUT', 3600))
 WORKFLOW_FILE = 'wan2.2_img_to_vid.json'
 
 # Initialize bot
-bot = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+SESSION_FILE = os.path.join('sessions', 'bot.session')
+os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
+bot = TelegramClient(SESSION_FILE, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 # Conversation states
 WAITING_FOR = {}

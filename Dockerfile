@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user
+RUN groupadd -r botuser && useradd -r -g botuser -m botuser
+
 # Set working directory
 WORKDIR /app
 
@@ -15,7 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Create directory for ComfyUI input/output
-RUN mkdir -p /storage/comfyui/input /storage/comfyui/output
+# Create directory for ComfyUI input/output and sessions
+RUN mkdir -p /storage/comfyui/input /storage/comfyui/output /app/sessions \
+    && chown -R botuser:botuser /app /storage
+
+# Switch to non-root user
+USER botuser
 
 CMD ["python", "bot.py"] 
