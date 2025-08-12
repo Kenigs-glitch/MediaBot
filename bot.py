@@ -1,11 +1,16 @@
 import os
 import json
-import logging
+import requests
 from pathlib import Path
-from dotenv import load_dotenv
+from loguru import logger
 from telethon import TelegramClient, events
 from telethon.tl.custom import Button
 
+from config import (
+    API_ID, API_HASH, BOT_TOKEN, ID_WHITELIST,
+    COMFYUI_URL, COMFYUI_INPUT_DIR, COMFYUI_OUTPUT_DIR,
+    GENERATION_TIMEOUT, WORKFLOW_FILE, SESSION_FILE
+)
 from media_utils import (
     is_image,
     process_image_to_video,
@@ -13,30 +18,16 @@ from media_utils import (
     get_latest_video
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Configure loguru
+logger.remove()  # Remove default handler
+logger.add(
+    lambda msg: print(msg),
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO",
+    colorize=True
 )
-logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
-
-# Configuration
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ID_WHITELIST = set(int(id_) for id_ in os.getenv('ID_WHITELIST', '').split(',') if id_)
-COMFYUI_URL = os.getenv('COMFYUI_URL', 'http://192.168.100.11:8188')
-COMFYUI_INPUT_DIR = os.getenv('COMFYUI_INPUT_DIR', '/storage/comfyui/input')
-COMFYUI_OUTPUT_DIR = os.getenv('COMFYUI_OUTPUT_DIR', '/storage/comfyui/output')
-GENERATION_TIMEOUT = int(os.getenv('GENERATION_TIMEOUT', 3600))
-WORKFLOW_FILE = 'wan2.2_img_to_vid.json'
 
 # Initialize bot
-SESSION_FILE = os.path.join('sessions', 'bot.session')
-os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
 bot = TelegramClient(SESSION_FILE, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 # Conversation states
@@ -50,7 +41,11 @@ def is_authorized(user_id):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     """Handle /start command"""
+    user = await event.get_sender()
+    logger.info(f"Start command received from user {user.id} (@{user.username})")
+    
     if not is_authorized(event.sender_id):
+        logger.warning(f"Unauthorized access attempt from user {user.id} (@{user.username})")
         return await event.respond("You are not authorized to use this bot.")
     
     keyboard = [[Button.text("Image to Video 🎬")]]
@@ -59,10 +54,14 @@ async def start_handler(event):
 @bot.on(events.NewMessage())
 async def message_handler(event):
     """Handle all other messages"""
-    if not is_authorized(event.sender_id):
+    user = await event.get_sender()
+    user_id = user.id
+    
+    if not is_authorized(user_id):
+        logger.warning(f"Unauthorized message from user {user_id} (@{user.username})")
         return
     
-    user_id = event.sender_id
+    logger.info(f"Message received from user {user_id} (@{user.username}): {event.text[:50]}...")
     
     # Handle the button press
     if event.text == "Image to Video 🎬":
@@ -75,17 +74,18 @@ async def message_handler(event):
         return
     
     state = WAITING_FOR[user_id]
-    logger.info(f"Processing state '{state}' for user {user_id}")
+    logger.info(f"Processing state '{state}' for user {user_id} (@{user.username})")
     
     if state == 'prompt':
         USER_DATA[user_id]['prompt'] = event.text
-        logger.info(f"Saved prompt: {event.text}")
+        logger.info(f"Saved prompt for user {user_id}: {event.text}")
         WAITING_FOR[user_id] = 'image'
         await event.respond("Please send an image:")
         return
         
     elif state == 'image':
         if not await is_image(event.message):
+            logger.warning(f"Invalid image file received from user {user_id}")
             return await event.respond("Please send a valid image file.")
         
         # Download image
@@ -97,12 +97,12 @@ async def message_handler(event):
             if not os.path.exists(download_path):
                 raise Exception("Failed to save the image")
             
-            logger.info(f"Saved image to: {download_path}")
+            logger.info(f"Saved image from user {user_id} to: {download_path}")
             USER_DATA[user_id]['image_path'] = download_path
             WAITING_FOR[user_id] = 'frames'
             await event.respond("Please enter the number of frames (2-125):")
         except Exception as e:
-            logger.error(f"Failed to save image: {str(e)}")
+            logger.error(f"Failed to save image for user {user_id}: {str(e)}")
             await event.respond(f"Failed to save the image: {str(e)}")
             WAITING_FOR[user_id] = 'image'
             await event.respond("Please try sending the image again:")
@@ -114,10 +114,12 @@ async def message_handler(event):
             if not 2 <= frames <= 125:
                 raise ValueError()
         except ValueError:
+            logger.warning(f"Invalid frame count '{event.text}' received from user {user_id}")
             return await event.respond("Please enter a valid number between 2-125.")
         
         if 'prompt' not in USER_DATA[user_id] or 'image_path' not in USER_DATA[user_id]:
             # Something went wrong with the state, restart
+            logger.error(f"State error for user {user_id}: missing prompt or image_path")
             WAITING_FOR[user_id] = 'prompt'
             USER_DATA[user_id] = {}
             await event.respond("Sorry, something went wrong. Let's start over.")
@@ -131,13 +133,12 @@ async def message_handler(event):
         processing_msg = await event.respond("Processing your request... This may take a while.")
         try:
             # Log current state
-            logger.info(f"Processing request for user {user_id}:")
+            logger.info(f"Processing request for user {user_id} (@{user.username}):")
             logger.info(f"Prompt: {USER_DATA[user_id]['prompt']}")
             logger.info(f"Image: {USER_DATA[user_id]['image_path']}")
             logger.info(f"Frames: {frames}")
             
             # Verify ComfyUI connection first
-            import requests
             try:
                 health_check = requests.get(COMFYUI_URL, timeout=5)
                 if health_check.status_code != 200:
@@ -153,25 +154,24 @@ async def message_handler(event):
                 WORKFLOW_FILE
             )
             
-            logger.info(f"Got prompt ID: {prompt_id}")
+            logger.info(f"Got prompt ID for user {user_id}: {prompt_id}")
             
             # Wait for completion
             await wait_for_generation(prompt_id, COMFYUI_URL, GENERATION_TIMEOUT)
-            logger.info("Generation completed")
+            logger.info(f"Generation completed for user {user_id}")
             
             # Find and send the output video
             latest_video = get_latest_video(COMFYUI_OUTPUT_DIR)
             if latest_video:
-                logger.info(f"Sending video: {latest_video}")
+                logger.info(f"Sending video to user {user_id}: {latest_video}")
                 await bot.send_file(event.chat_id, str(latest_video))
-                # Removed file deletion to avoid permission errors
-                logger.info("Video sent successfully")
+                logger.info(f"Video sent successfully to user {user_id}")
             else:
-                logger.error("No output video found")
+                logger.error(f"No output video found for user {user_id}")
                 await event.respond("No output video found.")
             
         except Exception as e:
-            logger.error(f"Error during processing: {str(e)}")
+            logger.error(f"Error during processing for user {user_id}: {str(e)}")
             await event.respond(f"An error occurred: {str(e)}")
         finally:
             await processing_msg.delete()
@@ -179,15 +179,11 @@ async def message_handler(event):
                 try:
                     if 'image_path' in USER_DATA[user_id]:
                         os.remove(USER_DATA[user_id]['image_path'])
-                        logger.info("Cleaned up input image")
-                except:
-                    pass
+                        logger.info(f"Cleaned up input image for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up input image for user {user_id}: {str(e)}")
                 del USER_DATA[user_id]
 
 if __name__ == "__main__":
-    # Ensure storage directories exist
-    os.makedirs(COMFYUI_INPUT_DIR, exist_ok=True)
-    os.makedirs(COMFYUI_OUTPUT_DIR, exist_ok=True)
-    
     logger.info("Bot started...")
     bot.run_until_disconnected() 
