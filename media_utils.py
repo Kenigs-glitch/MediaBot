@@ -8,6 +8,12 @@ from pathlib import Path
 from datetime import datetime
 from telethon.tl.types import DocumentAttributeFilename
 
+from config import (
+    SUPPORTED_IMAGE_EXTENSIONS,
+    DEFAULT_HORIZONTAL_SIZE,
+    DEFAULT_VERTICAL_SIZE
+)
+
 async def is_image(message):
     """Check if message contains an image"""
     if message.photo:
@@ -20,7 +26,7 @@ async def is_image(message):
                 if isinstance(attr, DocumentAttributeFilename):
                     filename = attr.file_name
                     break
-            if filename and filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            if filename and filename.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS):
                 return True
             return message.document.mime_type and message.document.mime_type.startswith('image/')
         except Exception:
@@ -32,11 +38,7 @@ async def get_image_dimensions(file_path):
     with Image.open(file_path) as img:
         width, height = img.size
         is_vertical = height > width
-        # For vertical images, swap width and height to maintain aspect ratio
-        if is_vertical:
-            return 720, 1280  # vertical orientation (width=720, height=1280)
-        else:
-            return 1280, 720  # horizontal orientation (width=1280, height=720)
+        return DEFAULT_VERTICAL_SIZE if is_vertical else DEFAULT_HORIZONTAL_SIZE
 
 async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, workflow_file):
     """Process image using ComfyUI workflow"""
@@ -52,21 +54,16 @@ async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, work
             for key, value in obj.items():
                 if value == "a video of a beautiful blondie woman doing gymnastics on the floor":
                     obj[key] = prompt
-                    print(f"Updated prompt to: {prompt}")
                 elif value in [720, "720", 1280, "1280"]:
                     # Update dimension based on whether it's width or height in the workflow
                     if key.lower().endswith('width'):
                         obj[key] = target_width
-                        print(f"Updated width to: {target_width}")
                     elif key.lower().endswith('height'):
                         obj[key] = target_height
-                        print(f"Updated height to: {target_height}")
                 elif value in [101, "101"]:
                     obj[key] = n_frames
-                    print(f"Updated frames to: {n_frames}")
                 elif isinstance(value, str) and value == "combined_opencv_last_frame.png":
                     obj[key] = os.path.basename(image_path)
-                    print(f"Updated input image to: {os.path.basename(image_path)}")
                 else:
                     update_workflow_params(value)
         elif isinstance(obj, list):
@@ -114,6 +111,5 @@ def get_latest_video(output_dir):
     video_files = list(output_dir.glob('*.mp4'))
     if video_files:
         latest_video = max(video_files, key=lambda x: x.stat().st_mtime)
-        print(f"Found video: {latest_video}")
         return latest_video
     return None 
