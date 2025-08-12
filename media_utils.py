@@ -50,7 +50,7 @@ async def process_image_to_video(prompt, image_path, n_frames, comfyui_url, work
     def update_workflow_params(obj):
         if isinstance(obj, dict):
             for key, value in obj.items():
-                if isinstance(value, str) and "doing gymnastics" in value:
+                if value == "a video of a beautiful blondie woman doing gymnastics on the floor":
                     obj[key] = prompt
                     print(f"Updated prompt to: {prompt}")
                 elif value in [720, "720", 1280, "1280"]:

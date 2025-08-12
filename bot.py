@@ -167,8 +167,8 @@ async def message_handler(event):
             if latest_video:
                 logger.info(f"Sending video: {latest_video}")
                 await bot.send_file(event.chat_id, str(latest_video))
-                os.remove(str(latest_video))
-                logger.info("Video sent and cleaned up")
+                # Removed file deletion to avoid permission errors
+                logger.info("Video sent successfully")
             else:
                 logger.error("No output video found")
                 await event.respond("No output video found.")
