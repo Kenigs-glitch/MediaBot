@@ -13,7 +13,7 @@ A Telegram bot that converts images to videos using ComfyUI's image-to-video wor
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Docker and Docker Compose
 - ComfyUI server with image-to-video workflow
 - Telegram Bot Token, API ID, and API Hash
