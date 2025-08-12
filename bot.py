@@ -1,0 +1,136 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+from telethon import TelegramClient, events
+from telethon.tl.custom import Button
+
+from media_utils import (
+    is_image,
+    process_image_to_video,
+    wait_for_generation,
+    get_latest_video
+)
+
+# Load environment variables
+load_dotenv()
+
+# Configuration
+API_ID = int(os.getenv('API_ID'))
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+ID_WHITELIST = set(int(id_) for id_ in os.getenv('ID_WHITELIST', '').split(',') if id_)
+COMFYUI_URL = os.getenv('COMFYUI_URL', 'http://192.168.100.11:8188')
+COMFYUI_INPUT_DIR = os.getenv('COMFYUI_INPUT_DIR', '/storage/comfyui/input')
+COMFYUI_OUTPUT_DIR = os.getenv('COMFYUI_OUTPUT_DIR', '/storage/comfyui/output')
+GENERATION_TIMEOUT = int(os.getenv('GENERATION_TIMEOUT', 3600))
+WORKFLOW_FILE = 'wan2.2_img_to_vid.json'
+
+# Initialize bot
+bot = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+# Conversation states
+WAITING_FOR = {}
+USER_DATA = {}
+
+def is_authorized(user_id):
+    """Check if user is in whitelist"""
+    return user_id in ID_WHITELIST
+
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    """Handle /start command"""
+    if not is_authorized(event.sender_id):
+        return await event.respond("You are not authorized to use this bot.")
+    
+    keyboard = [[Button.text("Image to Video 🎬")]]
+    await event.respond("Welcome! Choose an option:", buttons=keyboard)
+
+@bot.on(events.NewMessage(pattern='Image to Video 🎬'))
+async def img2vid_handler(event):
+    """Handle Image to Video conversion request"""
+    if not is_authorized(event.sender_id):
+        return
+    
+    WAITING_FOR[event.sender_id] = 'prompt'
+    USER_DATA[event.sender_id] = {}
+    
+    await event.respond("Please enter a prompt describing the video you want to generate:")
+
+@bot.on(events.NewMessage())
+async def message_handler(event):
+    """Handle all other messages"""
+    if not is_authorized(event.sender_id):
+        return
+    
+    user_id = event.sender_id
+    if user_id not in WAITING_FOR:
+        return
+    
+    state = WAITING_FOR[user_id]
+    
+    if state == 'prompt':
+        USER_DATA[user_id]['prompt'] = event.text
+        WAITING_FOR[user_id] = 'image'
+        await event.respond("Please send an image:")
+        
+    elif state == 'image':
+        if not await is_image(event.message):
+            return await event.respond("Please send a valid image file.")
+        
+        # Download image
+        download_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}.jpg")
+        await event.message.download_media(download_path)
+        
+        USER_DATA[user_id]['image_path'] = download_path
+        WAITING_FOR[user_id] = 'frames'
+        await event.respond("Please enter the number of frames (2-125):")
+        
+    elif state == 'frames':
+        try:
+            frames = int(event.text)
+            if not 2 <= frames <= 125:
+                raise ValueError()
+        except ValueError:
+            return await event.respond("Please enter a valid number between 2 and 125.")
+        
+        USER_DATA[user_id]['frames'] = frames
+        WAITING_FOR[user_id] = None
+        
+        # Process the request
+        processing_msg = await event.respond("Processing your request... This may take a while.")
+        try:
+            prompt_id = await process_image_to_video(
+                USER_DATA[user_id]['prompt'],
+                USER_DATA[user_id]['image_path'],
+                frames,
+                COMFYUI_URL,
+                WORKFLOW_FILE
+            )
+            
+            # Wait for completion
+            await wait_for_generation(prompt_id, COMFYUI_URL, GENERATION_TIMEOUT)
+            
+            # Find and send the output video
+            latest_video = get_latest_video(COMFYUI_OUTPUT_DIR)
+            if latest_video:
+                await bot.send_file(event.chat_id, str(latest_video))
+                os.remove(str(latest_video))
+            else:
+                await event.respond("No output video found.")
+            
+        except TimeoutError:
+            await event.respond("The generation process timed out. Please try again.")
+        except Exception as e:
+            await event.respond(f"An error occurred: {str(e)}")
+        finally:
+            await processing_msg.delete()
+            if user_id in USER_DATA:
+                try:
+                    os.remove(USER_DATA[user_id]['image_path'])
+                except:
+                    pass
+                del USER_DATA[user_id]
+
+if __name__ == "__main__":
+    print("Bot started...")
+    bot.run_until_disconnected() 

@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./.env:/app/.env
+      - /storage/comfyui/input:/storage/comfyui/input
+      - /storage/comfyui/output:/storage/comfyui/output 
