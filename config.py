@@ -28,7 +28,7 @@ SESSION_FILE = f'{SESSION_DIR}/bot.session'
 MAX_FRAMES_PER_SEGMENT = 125  # Maximum frames per video segment
 DEFAULT_FPS = 20.0  # Default FPS for concatenated videos
 DEFAULT_SEGMENT_FRAMES = 100  # Default number of frames per segment
-MAX_TOTAL_FRAMES = 1000  # Maximum total frames for long video generation
+MAX_TOTAL_FRAMES = 10000  # Maximum total frames for long video generation
 
 # Image Configuration
 SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp')

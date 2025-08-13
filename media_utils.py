@@ -7,31 +7,34 @@ from PIL import Image
 from pathlib import Path
 from datetime import datetime
 from loguru import logger
-from telethon.tl.types import DocumentAttributeFilename
+from telethon.tl.types import DocumentAttributeFilename, DocumentAttributeVideo, MessageMediaDocument
 
 from config import (
     SUPPORTED_IMAGE_EXTENSIONS,
     DEFAULT_HORIZONTAL_SIZE,
-    DEFAULT_VERTICAL_SIZE
+    DEFAULT_VERTICAL_SIZE,
+    COMFYUI_INPUT_DIR
 )
 
+async def is_video(message):
+    """Check if the message contains a video file (either as media or document)"""
+    if message.media:
+        if hasattr(message.media, 'document'):
+            for attr in message.media.document.attributes:
+                if isinstance(attr, DocumentAttributeVideo):
+                    return True
+        return message.video is not None
+    return False
+
 async def is_image(message):
-    """Check if message contains an image"""
-    if message.photo:
-        return True
-    if message.document:
-        mime = magic.Magic(mime=True)
-        try:
-            filename = None
-            for attr in message.document.attributes:
-                if isinstance(attr, DocumentAttributeFilename):
-                    filename = attr.file_name
-                    break
-            if filename and filename.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS):
-                return True
-            return message.document.mime_type and message.document.mime_type.startswith('image/')
-        except Exception:
-            return False
+    """Check if the message contains an image file"""
+    if message.media:
+        if hasattr(message.media, 'photo'):
+            return True
+        if hasattr(message.media, 'document'):
+            filename = message.file.name if message.file else None
+            if filename:
+                return any(filename.lower().endswith(ext) for ext in SUPPORTED_IMAGE_EXTENSIONS)
     return False
 
 async def get_image_dimensions(file_path):
@@ -136,3 +139,64 @@ def get_latest_video(output_dir):
         
     logger.warning(f"No video files found in {output_dir} or {date_dir}")
     return None 
+
+def resize_with_crop(frame, target_size):
+    """Resize frame to target size while preserving aspect ratio and cropping excess"""
+    target_w, target_h = target_size
+    h, w = frame.shape[:2]
+    
+    # Calculate target aspect ratio
+    target_aspect = target_w / target_h
+    aspect = w / h
+    
+    if aspect > target_aspect:
+        # Image is wider than target
+        new_w = int(h * target_aspect)
+        crop_x = (w - new_w) // 2
+        frame = frame[:, crop_x:crop_x + new_w]
+    else:
+        # Image is taller than target
+        new_h = int(w / target_aspect)
+        crop_y = (h - new_h) // 2
+        frame = frame[crop_y:crop_y + new_h, :]
+    
+    return cv2.resize(frame, (target_w, target_h))
+
+async def process_video_file(video_path):
+    """Process video file: extract last frame and resize it according to orientation"""
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise Exception("Failed to open video file")
+        
+        # Get video dimensions
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        is_vertical = height > width
+        target_size = DEFAULT_VERTICAL_SIZE if is_vertical else DEFAULT_HORIZONTAL_SIZE
+        
+        # Read last frame
+        last_frame = None
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            last_frame = frame
+        
+        cap.release()
+        
+        if last_frame is None:
+            raise Exception("Failed to extract frame from video")
+            
+        # Resize and crop frame
+        resized_frame = resize_with_crop(last_frame, target_size)
+        
+        # Save frame
+        output_path = os.path.join(COMFYUI_INPUT_DIR, f"video_frame_{Path(video_path).stem}.jpg")
+        cv2.imwrite(output_path, resized_frame)
+        
+        return output_path
+        
+    except Exception as e:
+        logger.error(f"Error processing video file: {str(e)}")
+        raise 

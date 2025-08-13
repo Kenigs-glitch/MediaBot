@@ -13,7 +13,10 @@ from config import (
     GENERATION_TIMEOUT, WORKFLOW_FILE, SESSION_FILE,
     MAX_FRAMES_PER_SEGMENT, MAX_TOTAL_FRAMES, DEFAULT_SEGMENT_FRAMES
 )
-from media_utils import is_image
+from media_utils import (
+    is_image, is_video, process_video_file,
+    process_image_to_video
+)
 from long_video import LongVideoGenerator
 
 # Configure loguru
@@ -36,6 +39,14 @@ def is_authorized(user_id):
     """Check if user is in whitelist"""
     return user_id in ID_WHITELIST
 
+async def show_initial_menu(event):
+    """Show the initial menu with video generation options"""
+    keyboard = [
+        [Button.text("Short Video 🎬")],
+        [Button.text("Long Video 🎥")]
+    ]
+    return await event.respond("Choose an option:", buttons=keyboard)
+
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     """Handle /start command"""
@@ -46,11 +57,49 @@ async def start_handler(event):
         logger.warning(f"Unauthorized access attempt from user {user.id} (@{user.username})")
         return await event.respond("You are not authorized to use this bot.")
     
-    keyboard = [
-        [Button.text("Short Video 🎬")],
-        [Button.text("Long Video 🎥")]
-    ]
-    await event.respond("Welcome! Choose an option:", buttons=keyboard)
+    await show_initial_menu(event)
+
+def parse_multi_prompt_message(message_text):
+    """Parse a message with multiple prompts and frame numbers.
+    Format: Prompt1\nFrames_N1\nPrompt2\nFrames_N2 and so on
+    Returns: List of tuples (prompt, frames) or None if invalid format
+    """
+    try:
+        # Split into lines and remove empty lines
+        lines = [line.strip() for line in message_text.split('\n') if line.strip()]
+        
+        # Must have even number of lines (prompt + frames pairs)
+        if len(lines) % 2 != 0 or len(lines) == 0 or len(lines) > 100:  # 50 pairs max
+            return None
+            
+        segments = []
+        total_frames = 0
+        
+        for i in range(0, len(lines), 2):
+            prompt = lines[i]
+            try:
+                frames = int(lines[i + 1])
+                # Validate per-segment frame count
+                if not 2 <= frames <= MAX_FRAMES_PER_SEGMENT:
+                    logger.warning(f"Invalid frame count {frames} - must be between 2 and {MAX_FRAMES_PER_SEGMENT}")
+                    return None
+                    
+                total_frames += frames
+                # Validate total frames
+                if total_frames > MAX_TOTAL_FRAMES:
+                    logger.warning(f"Total frames {total_frames} exceeds maximum {MAX_TOTAL_FRAMES}")
+                    return None
+                    
+            except ValueError:
+                logger.warning("Invalid frame number format")
+                return None
+                
+            segments.append((prompt, frames))
+            
+        return segments
+    except Exception as e:
+        logger.error(f"Error parsing multi-prompt message: {str(e)}")
+        return None
 
 @bot.on(events.NewMessage())
 async def message_handler(event):
@@ -64,6 +113,59 @@ async def message_handler(event):
     
     logger.info(f"Message received from user {user_id} (@{user.username}): {event.text[:50]}...")
     
+    # Handle media with caption (image or video)
+    if event.message.media and event.message.message:
+        is_img = await is_image(event.message)
+        is_vid = await is_video(event.message)
+        
+        if not (is_img or is_vid):
+            return await event.respond("Please send a valid image or video file.")
+            
+        # Try to parse multi-prompt format
+        segments = parse_multi_prompt_message(event.message.message)
+        if segments:
+            # Download media
+            try:
+                temp_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}_temp")
+                download_path = await event.message.download_media(temp_path)
+                
+                if not download_path:
+                    raise Exception("Failed to download media")
+                
+                # If it's a video, process it to extract the last frame
+                if is_vid:
+                    logger.info(f"Processing video from user {user_id}")
+                    image_path = await process_video_file(download_path)
+                    # Clean up temp video file
+                    os.remove(download_path)
+                else:
+                    image_path = download_path
+                
+                logger.info(f"Saved media from user {user_id} to: {image_path}")
+                
+                # Initialize data for long video generation
+                USER_DATA[user_id] = {
+                    'mode': 'long',
+                    'image_path': image_path,
+                    'prompt': segments[0][0],  # Use first prompt as default
+                    'segments': [
+                        {'prompt': prompt, 'frames': frames}
+                        for prompt, frames in segments
+                    ]
+                }
+                
+                # Process the video
+                await process_long_video(event, user_id)
+                return
+                
+            except Exception as e:
+                logger.error(f"Error processing multi-prompt request for user {user_id}: {str(e)}")
+                await event.respond(f"An error occurred: {str(e)}")
+                await show_initial_menu(event)
+                if 'download_path' in locals() and os.path.exists(download_path):
+                    os.remove(download_path)
+                return
+    
     # Handle the button press - clear previous state
     if event.text in ["Short Video 🎬", "Long Video 🎥"]:
         # Clear any previous state
@@ -74,11 +176,7 @@ async def message_handler(event):
     
     if user_id not in WAITING_FOR:
         # Add default response for messages outside the flow
-        keyboard = [
-            [Button.text("Short Video 🎬")],
-            [Button.text("Long Video 🎥")]
-        ]
-        await event.respond("Please choose an option from the menu:", buttons=keyboard)
+        await show_initial_menu(event)
         return
     
     state = WAITING_FOR[user_id]
@@ -87,26 +185,37 @@ async def message_handler(event):
     if state == 'prompt':
         USER_DATA[user_id]['prompt'] = event.text
         logger.info(f"Saved prompt for user {user_id}: {event.text}")
-        WAITING_FOR[user_id] = 'image'
-        await event.respond("Please send an image:")
+        WAITING_FOR[user_id] = 'media'
+        await event.respond("Please send an image or video:")
         return
         
-    elif state == 'image':
-        if not await is_image(event.message):
-            logger.warning(f"Invalid image file received from user {user_id}")
-            return await event.respond("Please send a valid image file.")
+    elif state == 'media':
+        is_img = await is_image(event.message)
+        is_vid = await is_video(event.message)
         
-        # Download image
+        if not (is_img or is_vid):
+            logger.warning(f"Invalid media file received from user {user_id}")
+            return await event.respond("Please send a valid image or video file.")
+        
+        # Download media
         try:
-            download_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}.jpg")
-            await event.message.download_media(download_path)
+            temp_path = os.path.join(COMFYUI_INPUT_DIR, f"input_{user_id}_temp")
+            download_path = await event.message.download_media(temp_path)
             
-            # Verify the file was actually downloaded
-            if not os.path.exists(download_path):
-                raise Exception("Failed to save the image")
+            if not download_path:
+                raise Exception("Failed to download media")
             
-            logger.info(f"Saved image from user {user_id} to: {download_path}")
-            USER_DATA[user_id]['image_path'] = download_path
+            # If it's a video, process it to extract the last frame
+            if is_vid:
+                logger.info(f"Processing video from user {user_id}")
+                image_path = await process_video_file(download_path)
+                # Clean up temp video file
+                os.remove(download_path)
+            else:
+                image_path = download_path
+            
+            logger.info(f"Saved media from user {user_id} to: {image_path}")
+            USER_DATA[user_id]['image_path'] = image_path
             
             if USER_DATA[user_id]['mode'] == 'short':
                 WAITING_FOR[user_id] = 'frames'
@@ -125,11 +234,11 @@ async def message_handler(event):
                 )
                 
         except Exception as e:
-            logger.error(f"Failed to save image for user {user_id}: {str(e)}")
-            await event.respond(f"Failed to save the image: {str(e)}")
-            WAITING_FOR[user_id] = 'image'
-            await event.respond("Please try sending the image again:")
-        return
+            logger.error(f"Error processing media for user {user_id}: {str(e)}")
+            await event.respond(f"An error occurred: {str(e)}")
+            if 'download_path' in locals() and os.path.exists(download_path):
+                os.remove(download_path)
+            return
         
     elif state == 'frames':
         try:
@@ -280,83 +389,63 @@ async def message_handler(event):
 
 async def process_short_video(event, user_id):
     """Process a short video request"""
-    if 'prompt' not in USER_DATA[user_id] or 'image_path' not in USER_DATA[user_id]:
-        logger.error(f"State error for user {user_id}: missing prompt or image_path")
-        WAITING_FOR[user_id] = 'prompt'
-        USER_DATA[user_id] = {}
-        await event.respond("Sorry, something went wrong. Let's start over.")
-        await event.respond("Please enter a prompt describing the video you want to generate:")
-        return
-    
-    WAITING_FOR[user_id] = None
-    processing_msg = await event.respond("Processing your request... This may take a while.")
-    
     try:
-        generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
-        video_path = await generator.generate_video_segment(
-            USER_DATA[user_id]['prompt'],
-            USER_DATA[user_id]['image_path'],
-            USER_DATA[user_id]['frames']
-        )
+        # Get user data
+        data = USER_DATA[user_id]
+        prompt = data['prompt']
+        image_path = data['image_path']
+        n_frames = data['frames']
         
-        if os.path.exists(video_path):
-            logger.info(f"Sending video to user {user_id}: {video_path}")
-            await bot.send_file(event.chat_id, video_path)
-            logger.info(f"Video sent successfully to user {user_id}")
-            try:
-                os.remove(video_path)
-            except Exception as e:
-                logger.error(f"Failed to clean up video for user {user_id}: {str(e)}")
-        else:
-            logger.error(f"No output video found for user {user_id}")
-            await event.respond("No output video found.")
-            
+        # Process the video
+        await event.respond("Processing your video... This may take a while.")
+        await process_image_to_video(prompt, image_path, n_frames, COMFYUI_URL, WORKFLOW_FILE)
+        
+        # Clean up
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        
+        # Reset state
+        WAITING_FOR.pop(user_id, None)
+        USER_DATA.pop(user_id, None)
+        
+        # Show success message and return to initial menu
+        await event.respond("Video processing completed!")
+        await show_initial_menu(event)
+        
     except Exception as e:
-        logger.error(f"Error during processing for user {user_id}: {str(e)}")
-        await event.respond(f"An error occurred: {str(e)}")
-    finally:
-        await processing_msg.delete()
-        cleanup_user_data(user_id)
+        logger.error(f"Error processing video for user {user_id}: {str(e)}")
+        await event.respond(f"An error occurred while processing your video: {str(e)}")
+        await show_initial_menu(event)
 
 async def process_long_video(event, user_id):
     """Process a long video request"""
-    if not all(key in USER_DATA[user_id] for key in ['prompt', 'image_path', 'segments']):
-        logger.error(f"State error for user {user_id}: missing required data")
-        WAITING_FOR[user_id] = 'prompt'
-        USER_DATA[user_id] = {}
-        await event.respond("Sorry, something went wrong. Let's start over.")
-        await event.respond("Please enter a prompt describing the video you want to generate:")
-        return
-    
-    WAITING_FOR[user_id] = None
-    processing_msg = await event.respond("Processing your request... This may take a while.")
-    
     try:
-        generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
-        video_path = await generator.generate_long_video(
-            USER_DATA[user_id]['prompt'],
-            USER_DATA[user_id]['image_path'],
-            USER_DATA[user_id]['segments']
+        data = USER_DATA[user_id]
+        generator = LongVideoGenerator(
+            image_path=data['image_path'],
+            segments=data['segments'],
+            default_prompt=data['prompt']
         )
         
-        if os.path.exists(video_path):
-            logger.info(f"Sending video to user {user_id}: {video_path}")
-            await bot.send_file(event.chat_id, video_path)
-            logger.info(f"Video sent successfully to user {user_id}")
-            try:
-                os.remove(video_path)
-            except Exception as e:
-                logger.error(f"Failed to clean up video for user {user_id}: {str(e)}")
-        else:
-            logger.error(f"No output video found for user {user_id}")
-            await event.respond("No output video found.")
-            
+        await event.respond("Processing your video... This may take a while.")
+        await generator.generate()
+        
+        # Clean up
+        if os.path.exists(data['image_path']):
+            os.remove(data['image_path'])
+        
+        # Reset state
+        WAITING_FOR.pop(user_id, None)
+        USER_DATA.pop(user_id, None)
+        
+        # Show success message and return to initial menu
+        await event.respond("Video processing completed!")
+        await show_initial_menu(event)
+        
     except Exception as e:
-        logger.error(f"Error during processing for user {user_id}: {str(e)}")
-        await event.respond(f"An error occurred: {str(e)}")
-    finally:
-        await processing_msg.delete()
-        cleanup_user_data(user_id)
+        logger.error(f"Error processing long video for user {user_id}: {str(e)}")
+        await event.respond(f"An error occurred while processing your video: {str(e)}")
+        await show_initial_menu(event)
 
 def cleanup_user_data(user_id):
     """Clean up user data and temporary files"""
