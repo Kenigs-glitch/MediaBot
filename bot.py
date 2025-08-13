@@ -112,15 +112,16 @@ async def message_handler(event):
                 WAITING_FOR[user_id] = 'frames'
                 await event.respond(f"Please enter the number of frames (2-{MAX_FRAMES_PER_SEGMENT}):")
             else:
-                WAITING_FOR[user_id] = 'num_segments'
+                # Initialize long video data
+                USER_DATA[user_id].update({
+                    'segments': [],
+                    'total_frames': 0
+                })
+                WAITING_FOR[user_id] = 'segment_setup'
                 await event.respond(
-                    "How many segments would you like to create? Each segment can have up to "
-                    f"{MAX_FRAMES_PER_SEGMENT} frames.\n\n"
-                    "For example:\n"
-                    "- 2 segments = up to 250 frames total\n"
-                    "- 4 segments = up to 500 frames total\n"
-                    f"Maximum total frames allowed: {MAX_TOTAL_FRAMES}\n\n"
-                    "Enter number of segments (1-8):"
+                    "Let's create your video segment by segment.\n\n"
+                    f"How many frames for segment 1? (2-{MAX_FRAMES_PER_SEGMENT})\n"
+                    f"Default: {DEFAULT_SEGMENT_FRAMES}"
                 )
                 
         except Exception as e:
@@ -141,38 +142,22 @@ async def message_handler(event):
         
         USER_DATA[user_id]['frames'] = frames
         await process_short_video(event, user_id)
-        
-    elif state == 'num_segments':
-        try:
-            num_segments = int(event.text)
-            max_segments = MAX_TOTAL_FRAMES // MAX_FRAMES_PER_SEGMENT
-            if not 1 <= num_segments <= max_segments:
-                raise ValueError()
-        except ValueError:
-            logger.warning(f"Invalid segment count '{event.text}' received from user {user_id}")
-            return await event.respond(
-                f"Please enter a valid number between 1-{max_segments}. "
-                "Each segment can have up to 125 frames."
-            )
-        
-        USER_DATA[user_id].update({
-            'total_segments': num_segments,
-            'current_segment': 0,
-            'segments': []
-        })
-        
-        WAITING_FOR[user_id] = 'segment_setup'
-        await event.respond(
-            f"Great! Let's set up segment 1/{num_segments}.\n\n"
-            f"How many frames for this segment? (2-{MAX_FRAMES_PER_SEGMENT})\n"
-            f"Default: {DEFAULT_SEGMENT_FRAMES}"
-        )
-        
+            
     elif state == 'segment_setup':
         try:
             frames = int(event.text) if event.text.strip() else DEFAULT_SEGMENT_FRAMES
             if not 2 <= frames <= MAX_FRAMES_PER_SEGMENT:
                 raise ValueError()
+            
+            # Check if adding these frames would exceed the maximum
+            new_total = USER_DATA[user_id]['total_frames'] + frames
+            if new_total > MAX_TOTAL_FRAMES:
+                return await event.respond(
+                    f"Adding {frames} frames would exceed the maximum total of {MAX_TOTAL_FRAMES} frames.\n"
+                    f"You currently have {USER_DATA[user_id]['total_frames']} frames.\n"
+                    f"You can add up to {MAX_TOTAL_FRAMES - USER_DATA[user_id]['total_frames']} more frames.\n\n"
+                    "Please enter a smaller number:"
+                )
         except ValueError:
             logger.warning(f"Invalid segment frame count '{event.text}' received from user {user_id}")
             return await event.respond(
@@ -180,56 +165,75 @@ async def message_handler(event):
                 f"or press Enter to use the default ({DEFAULT_SEGMENT_FRAMES})."
             )
         
-        current_segment = USER_DATA[user_id]['current_segment']
-        total_segments = USER_DATA[user_id]['total_segments']
-        
-        # Initialize segment data
-        segment_data = {'frames': frames}
+        # Store frames temporarily
+        USER_DATA[user_id]['temp_frames'] = frames
         
         # Move to prompt state
         WAITING_FOR[user_id] = 'segment_prompt'
-        if current_segment == 0:
-            # For first segment, use the initial prompt by default
-            segment_data['prompt'] = USER_DATA[user_id]['prompt']
-            USER_DATA[user_id]['segments'].append(segment_data)
+        if not USER_DATA[user_id]['segments']:  # First segment
+            # Use initial prompt for first segment
+            USER_DATA[user_id]['segments'].append({
+                'frames': frames,
+                'prompt': USER_DATA[user_id]['prompt']
+            })
+            USER_DATA[user_id]['total_frames'] = frames
             
-            if total_segments > 1:
-                await event.respond(
-                    f"Segment 1/{total_segments} will use your initial prompt:\n"
-                    f"\"{USER_DATA[user_id]['prompt']}\"\n\n"
-                    f"Now, enter a prompt for segment 2/{total_segments}:"
-                )
-                USER_DATA[user_id]['current_segment'] += 1
-            else:
-                # If only one segment, proceed to processing
-                await process_long_video(event, user_id)
-        else:
-            await event.respond(f"Enter a prompt for segment {current_segment + 1}/{total_segments}:")
-            
-    elif state == 'segment_prompt':
-        current_segment = USER_DATA[user_id]['current_segment']
-        total_segments = USER_DATA[user_id]['total_segments']
-        
-        # Save prompt for current segment
-        USER_DATA[user_id]['segments'].append({
-            'frames': USER_DATA[user_id]['segments'][-1]['frames'],  # Use same frame count as last segment
-            'prompt': event.text
-        })
-        
-        # Check if we need more segments
-        if current_segment < total_segments - 1:
-            USER_DATA[user_id]['current_segment'] += 1
-            current_segment += 1
-            
-            WAITING_FOR[user_id] = 'segment_setup'
+            # Ask if user wants to add another segment
+            keyboard = [
+                [Button.text("✅ Process Video")],
+                [Button.text("➕ Add Another Segment")]
+            ]
             await event.respond(
-                f"Great! Now for segment {current_segment + 1}/{total_segments}.\n\n"
-                f"How many frames for this segment? (2-{MAX_FRAMES_PER_SEGMENT})\n"
-                f"Default: {DEFAULT_SEGMENT_FRAMES}"
+                f"Segment 1 configured with {frames} frames.\n"
+                f"Total frames so far: {frames}\n\n"
+                "Would you like to add another segment or process the video?",
+                buttons=keyboard
             )
         else:
-            # All segments configured, proceed to processing
+            await event.respond(f"Enter a prompt for segment {len(USER_DATA[user_id]['segments']) + 1}:")
+            
+    elif state == 'segment_prompt':
+        if event.text == "✅ Process Video":
             await process_long_video(event, user_id)
+            return
+        elif event.text == "➕ Add Another Segment":
+            WAITING_FOR[user_id] = 'segment_setup'
+            segment_num = len(USER_DATA[user_id]['segments']) + 1
+            frames_left = MAX_TOTAL_FRAMES - USER_DATA[user_id]['total_frames']
+            max_frames = min(MAX_FRAMES_PER_SEGMENT, frames_left)
+            
+            await event.respond(
+                f"How many frames for segment {segment_num}? (2-{max_frames})\n"
+                f"Default: {min(DEFAULT_SEGMENT_FRAMES, max_frames)}\n\n"
+                f"Total frames so far: {USER_DATA[user_id]['total_frames']}"
+            )
+            return
+        
+        # Regular prompt handling
+        segment_num = len(USER_DATA[user_id]['segments']) + 1
+        frames = USER_DATA[user_id]['temp_frames']
+        
+        # Add the new segment
+        USER_DATA[user_id]['segments'].append({
+            'frames': frames,
+            'prompt': event.text
+        })
+        USER_DATA[user_id]['total_frames'] += frames
+        
+        # Ask if user wants to add another segment
+        frames_left = MAX_TOTAL_FRAMES - USER_DATA[user_id]['total_frames']
+        keyboard = [
+            [Button.text("✅ Process Video")],
+            [Button.text("➕ Add Another Segment")] if frames_left >= 2 else []
+        ]
+        
+        await event.respond(
+            f"Segment {segment_num} configured with {frames} frames.\n"
+            f"Total frames so far: {USER_DATA[user_id]['total_frames']}\n"
+            f"Frames remaining: {frames_left}\n\n"
+            "Would you like to add another segment or process the video?",
+            buttons=keyboard
+        )
             
     elif state == 'segment_frames':
         try:
