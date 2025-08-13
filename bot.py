@@ -421,14 +421,28 @@ async def process_long_video(event, user_id):
     """Process a long video request"""
     try:
         data = USER_DATA[user_id]
-        generator = LongVideoGenerator(
-            image_path=data['image_path'],
-            segments=data['segments'],
-            default_prompt=data['prompt']
+        generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
+        
+        # Process the video
+        await event.respond("Processing your video... This may take a while.")
+        video_path = await generator.generate_long_video(
+            initial_prompt=data['prompt'],
+            initial_image=data['image_path'],
+            segments_data=data['segments']
         )
         
-        await event.respond("Processing your video... This may take a while.")
-        await generator.generate()
+        # Send the video
+        if os.path.exists(video_path):
+            logger.info(f"Sending video to user {user_id}: {video_path}")
+            await bot.send_file(event.chat_id, video_path)
+            logger.info(f"Video sent successfully to user {user_id}")
+            try:
+                os.remove(video_path)
+            except Exception as e:
+                logger.error(f"Failed to clean up video for user {user_id}: {str(e)}")
+        else:
+            logger.error(f"No output video found for user {user_id}")
+            await event.respond("No output video found.")
         
         # Clean up
         if os.path.exists(data['image_path']):
