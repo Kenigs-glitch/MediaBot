@@ -9,5 +9,6 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./sessions:/app/sessions
+      - ./temp:/app/temp
       - /storage/comfyui/input:/storage/comfyui/input
       - /storage/comfyui/output:/storage/comfyui/output 

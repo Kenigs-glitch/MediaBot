@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create directory for ComfyUI input/output and sessions
-RUN mkdir -p /storage/comfyui/input /storage/comfyui/output /app/sessions \
+RUN mkdir -p /storage/comfyui/input /storage/comfyui/output /app/sessions /app/temp \
     && chown -R botuser:botuser /app /storage
 
 # Switch to non-root user
