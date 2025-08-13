@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -51,8 +52,19 @@ class LongVideoGenerator:
         # Copy video to temp directory with unique name
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         segment_path = self.temp_dir / f"{TEMP_VIDEO_PREFIX}{timestamp}.mp4"
-        logger.info(f"Moving video from {video_path} to {segment_path}")
-        os.rename(video_path, segment_path)
+        logger.info(f"Copying video from {video_path} to {segment_path}")
+        
+        try:
+            shutil.copy2(str(video_path), str(segment_path))
+            logger.info(f"Successfully copied video to {segment_path}")
+            try:
+                os.remove(video_path)
+                logger.info(f"Successfully removed original video at {video_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove original video at {video_path}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to copy video from {video_path} to {segment_path}: {e}")
+            raise
         
         return str(segment_path)
     
