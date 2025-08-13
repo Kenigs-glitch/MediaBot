@@ -127,6 +127,65 @@ class LongVideoGenerator:
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
     
+    async def generate_video_extension(
+        self,
+        initial_video: str,
+        segments_data: List[Dict[str, any]]
+    ) -> str:
+        """
+        Generate a video extension by concatenating the initial video with new segments
+        
+        initial_video: Path to the initial video file
+        segments_data: List of dicts with keys:
+            - frames: int (number of frames)
+            - prompt: Optional[str] (if None, uses previous prompt)
+        """
+        video_segments = [initial_video]  # Start with the initial video
+        current_image = initial_video
+        current_prompt = None
+        temp_files_to_cleanup = []
+        
+        try:
+            # Generate each new segment
+            for i, segment in enumerate(segments_data):
+                frames = segment['frames']
+                prompt = segment.get('prompt')
+                if not prompt:
+                    raise Exception(f"Prompt is required for segment {i+1}")
+                
+                # Extract last frame from current video for next segment
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                last_frame_name = f"{TEMP_FRAME_PREFIX}{timestamp}.png"
+                last_frame_path = Path(COMFYUI_INPUT_DIR) / last_frame_name
+                logger.info(f"Extracting last frame to ComfyUI input directory: {last_frame_path}")
+                current_image = extract_last_frame(current_image, str(last_frame_path))
+                temp_files_to_cleanup.append(str(last_frame_path))
+                
+                # Generate new video segment
+                video_path = await self.generate_video_segment(prompt, current_image, frames)
+                video_segments.append(video_path)
+                current_image = video_path
+                current_prompt = prompt
+            
+            # Concatenate all segments (initial video + new segments)
+            if len(video_segments) > 1:
+                output_path = self.temp_dir / f"extended_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+                concatenate_videos(video_segments, str(output_path), DEFAULT_FPS)
+                return str(output_path)
+            else:
+                return video_segments[0]
+                
+        finally:
+            # Cleanup temporary files (but keep the initial video)
+            self._cleanup_temp_files(video_segments)
+            # Clean up temporary frame files from ComfyUI input directory
+            for temp_file in temp_files_to_cleanup:
+                try:
+                    os.remove(temp_file)
+                    logger.info(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
+    
     def _cleanup_temp_files(self, keep_files: Optional[List[str]] = None):
         """Clean up temporary files except the ones in keep_files"""
         keep_files = set(keep_files or [])

@@ -135,11 +135,12 @@ async def message_handler(event):
                 # If it's a video, process it to extract the last frame
                 if is_vid:
                     logger.info(f"Processing video from user {user_id}")
-                    image_path = await process_video_file(download_path)
-                    # Clean up temp video file
-                    os.remove(download_path)
+                    # For video extension, we keep the video file
+                    image_path = download_path
+                    is_video_extension = True
                 else:
                     image_path = download_path
+                    is_video_extension = False
                 
                 logger.info(f"Saved media from user {user_id} to: {image_path}")
                 
@@ -151,7 +152,8 @@ async def message_handler(event):
                     'segments': [
                         {'prompt': prompt, 'frames': frames}
                         for prompt, frames in segments
-                    ]
+                    ],
+                    'is_video_extension': is_video_extension
                 }
                 
                 # Process the video
@@ -208,11 +210,12 @@ async def message_handler(event):
             # If it's a video, process it to extract the last frame
             if is_vid:
                 logger.info(f"Processing video from user {user_id}")
-                image_path = await process_video_file(download_path)
-                # Clean up temp video file
-                os.remove(download_path)
+                # For video extension, we keep the video file
+                image_path = download_path
+                USER_DATA[user_id]['is_video_extension'] = True
             else:
                 image_path = download_path
+                USER_DATA[user_id]['is_video_extension'] = False
             
             logger.info(f"Saved media from user {user_id} to: {image_path}")
             USER_DATA[user_id]['image_path'] = image_path
@@ -423,13 +426,25 @@ async def process_long_video(event, user_id):
         data = USER_DATA[user_id]
         generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
         
+        # Check if this is a video extension (user sent a video)
+        is_video_extension = data.get('is_video_extension', False)
+        
         # Process the video
         await event.respond("Processing your video... This may take a while.")
-        video_path = await generator.generate_long_video(
-            initial_prompt=data['prompt'],
-            initial_image=data['image_path'],
-            segments_data=data['segments']
-        )
+        
+        if is_video_extension:
+            # Use video extension method
+            video_path = await generator.generate_video_extension(
+                initial_video=data['image_path'],  # This is actually the video path
+                segments_data=data['segments']
+            )
+        else:
+            # Use regular long video generation
+            video_path = await generator.generate_long_video(
+                initial_prompt=data['prompt'],
+                initial_image=data['image_path'],
+                segments_data=data['segments']
+            )
         
         # Send the video
         if os.path.exists(video_path):
