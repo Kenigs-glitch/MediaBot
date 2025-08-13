@@ -21,8 +21,8 @@ GENERATION_TIMEOUT = int(os.getenv('GENERATION_TIMEOUT', 3600))
 WORKFLOW_FILE = 'wan2.2_img_to_vid.json'
 
 # Session Configuration
-SESSION_DIR = Path('sessions')
-SESSION_FILE = SESSION_DIR / 'bot.session'
+SESSION_DIR = 'sessions'
+SESSION_FILE = f'{SESSION_DIR}/bot.session'
 
 # Video Generation Configuration
 MAX_FRAMES_PER_SEGMENT = 125  # Maximum frames per video segment
