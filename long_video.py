@@ -7,7 +7,8 @@ from loguru import logger
 
 from config import (
     MAX_FRAMES_PER_SEGMENT, DEFAULT_FPS, TEMP_DIR,
-    TEMP_FRAME_PREFIX, TEMP_VIDEO_PREFIX, COMFYUI_OUTPUT_DIR
+    TEMP_FRAME_PREFIX, TEMP_VIDEO_PREFIX, COMFYUI_OUTPUT_DIR,
+    COMFYUI_INPUT_DIR
 )
 from media_utils import process_image_to_video, wait_for_generation, get_latest_video
 from video_utils import extract_last_frame, concatenate_videos
@@ -84,6 +85,7 @@ class LongVideoGenerator:
         video_segments = []
         current_image = initial_image
         current_prompt = initial_prompt
+        temp_files_to_cleanup = []
         
         try:
             # Generate each segment
@@ -98,8 +100,12 @@ class LongVideoGenerator:
                 # Extract last frame for next segment if not the last one
                 if i < len(segments_data) - 1:
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    last_frame_path = self.temp_dir / f"{TEMP_FRAME_PREFIX}{timestamp}.png"
+                    # Save last frame to ComfyUI input directory
+                    last_frame_name = f"{TEMP_FRAME_PREFIX}{timestamp}.png"
+                    last_frame_path = Path(COMFYUI_INPUT_DIR) / last_frame_name
+                    logger.info(f"Extracting last frame to ComfyUI input directory: {last_frame_path}")
                     current_image = extract_last_frame(video_path, str(last_frame_path))
+                    temp_files_to_cleanup.append(str(last_frame_path))
                     current_prompt = prompt
             
             # Concatenate all segments
@@ -113,6 +119,13 @@ class LongVideoGenerator:
         finally:
             # Cleanup temporary files
             self._cleanup_temp_files(video_segments)
+            # Clean up temporary frame files from ComfyUI input directory
+            for temp_file in temp_files_to_cleanup:
+                try:
+                    os.remove(temp_file)
+                    logger.info(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
     
     def _cleanup_temp_files(self, keep_files: Optional[List[str]] = None):
         """Clean up temporary files except the ones in keep_files"""
