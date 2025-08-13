@@ -5,6 +5,7 @@ from pathlib import Path
 from loguru import logger
 from telethon import TelegramClient, events
 from telethon.tl.custom import Button
+import sys
 
 from config import (
     API_ID, API_HASH, BOT_TOKEN, ID_WHITELIST,
@@ -18,7 +19,7 @@ from long_video import LongVideoGenerator
 # Configure loguru
 logger.remove()  # Remove default handler
 logger.add(
-    lambda msg: print(msg),
+    sys.stdout,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     level="INFO",
     colorize=True
