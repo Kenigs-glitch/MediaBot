@@ -1,4 +1,6 @@
 import os
+import cv2
+import numpy as np
 import json
 import magic
 import asyncio
