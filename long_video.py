@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from loguru import logger
 
 from config import (
     MAX_FRAMES_PER_SEGMENT, DEFAULT_FPS, TEMP_DIR,
@@ -19,9 +20,12 @@ class LongVideoGenerator:
         self.generation_timeout = generation_timeout
         self.temp_dir = TEMP_DIR
         self.segments: List[Dict] = []
+        logger.info(f"Initialized LongVideoGenerator with ComfyUI URL: {comfyui_url}, workflow: {workflow_file}")
         
     async def generate_video_segment(self, prompt: str, image_path: str, n_frames: int) -> str:
         """Generate a single video segment"""
+        logger.info(f"Generating video segment with prompt: {prompt}, image: {image_path}, frames: {n_frames}")
+        
         # Process the image to video
         prompt_id = await process_image_to_video(
             prompt,
@@ -30,18 +34,24 @@ class LongVideoGenerator:
             self.comfyui_url,
             self.workflow_file
         )
+        logger.info(f"Got prompt ID from ComfyUI: {prompt_id}")
         
         # Wait for generation to complete
         await wait_for_generation(prompt_id, self.comfyui_url, self.generation_timeout)
+        logger.info("Generation completed, looking for output video")
         
         # Get the generated video
         video_path = get_latest_video(COMFYUI_OUTPUT_DIR)
         if not video_path:
+            logger.error(f"No output video found in {COMFYUI_OUTPUT_DIR}")
             raise Exception("No output video found")
+        
+        logger.info(f"Found output video at: {video_path}")
         
         # Copy video to temp directory with unique name
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         segment_path = self.temp_dir / f"{TEMP_VIDEO_PREFIX}{timestamp}.mp4"
+        logger.info(f"Moving video from {video_path} to {segment_path}")
         os.rename(video_path, segment_path)
         
         return str(segment_path)
