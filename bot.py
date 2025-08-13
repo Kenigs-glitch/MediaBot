@@ -72,6 +72,12 @@ async def message_handler(event):
         return
     
     if user_id not in WAITING_FOR:
+        # Add default response for messages outside the flow
+        keyboard = [
+            [Button.text("Short Video 🎬")],
+            [Button.text("Long Video 🎥")]
+        ]
+        await event.respond("Please choose an option from the menu:", buttons=keyboard)
         return
     
     state = WAITING_FOR[user_id]
