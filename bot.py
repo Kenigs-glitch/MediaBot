@@ -18,6 +18,7 @@ from media_utils import (
     process_image_to_video
 )
 from long_video import LongVideoGenerator
+from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui
 
 # Configure loguru
 logger.remove()  # Remove default handler
@@ -486,6 +487,68 @@ def cleanup_user_data(user_id):
         except Exception as e:
             logger.error(f"Failed to clean up input image for user {user_id}: {str(e)}")
         del USER_DATA[user_id]
+
+@bot.on(events.NewMessage(pattern='/admin'))
+async def admin_handler(event):
+    """Handle admin commands for server management"""
+    user = await event.get_sender()
+    
+    if not is_authorized(event.sender_id):
+        logger.warning(f"Unauthorized admin access attempt from user {user.id}")
+        return await event.respond("You are not authorized to use admin commands.")
+    
+    message_text = event.text.strip()
+    parts = message_text.split()
+    
+    if len(parts) < 2:
+        await event.respond(
+            "Admin commands:\n"
+            "/admin status - Check ComfyUI status\n"
+            "/admin restart - Restart ComfyUI\n"
+            "/admin force_restart - Force restart ComfyUI\n"
+            "/admin start - Start ComfyUI"
+        )
+        return
+    
+    command = parts[1].lower()
+    
+    try:
+        if command == "status":
+            status = check_comfyui_status()
+            if status:
+                await event.respond(f"ComfyUI status: {status}")
+            else:
+                await event.respond("Error checking ComfyUI status")
+                
+        elif command == "restart":
+            await event.respond("Restarting ComfyUI...")
+            success = restart_comfyui()
+            if success:
+                await event.respond("ComfyUI restarted successfully!")
+            else:
+                await event.respond("Failed to restart ComfyUI")
+                
+        elif command == "force_restart":
+            await event.respond("Force restarting ComfyUI...")
+            success = force_restart_comfyui()
+            if success:
+                await event.respond("ComfyUI force restarted successfully!")
+            else:
+                await event.respond("Failed to force restart ComfyUI")
+                
+        elif command == "start":
+            await event.respond("Starting ComfyUI...")
+            success = start_comfyui()
+            if success:
+                await event.respond("ComfyUI started successfully!")
+            else:
+                await event.respond("Failed to start ComfyUI")
+        else:
+            await event.respond("Unknown admin command")
+            
+    except Exception as e:
+        logger.error(f"Error in admin command {command}: {e}")
+        await event.respond(f"Error executing admin command: {str(e)}")
 
 if __name__ == "__main__":
     logger.info("Bot started...")

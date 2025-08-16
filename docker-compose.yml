@@ -11,4 +11,5 @@ services:
       - ./sessions:/app/sessions
       - ./temp:/app/temp
       - /storage/comfyui/input:/storage/comfyui/input
-      - /storage/comfyui/output:/storage/comfyui/output 
+      - /storage/comfyui/output:/storage/comfyui/output
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management 

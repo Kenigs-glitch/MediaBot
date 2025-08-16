@@ -92,6 +92,19 @@ Morning sunrise
 
 This will generate a video with three segments using the specified prompts and frame counts.
 
+### Server Management
+
+The bot includes admin commands to manage the ComfyUI server:
+
+- `/admin status` - Check ComfyUI container status
+- `/admin restart` - Restart ComfyUI container
+- `/admin force_restart` - Force restart ComfyUI (stop, remove, and start fresh)
+- `/admin start` - Start ComfyUI if it's not running
+
+These commands are only available to users in the `ID_WHITELIST`.
+
+**Security Note**: The bot container has access to the Docker socket to manage ComfyUI. This provides full Docker daemon access, so ensure only trusted users are in the whitelist.
+
 ### Video Extension
 
 The bot supports using videos as input:
