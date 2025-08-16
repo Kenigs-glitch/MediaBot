@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from loguru import logger
+from telethon import events
 
 from ai_agent import SimpleAIAgent, create_simple_ai_agent
 from bot import bot, is_authorized, show_initial_menu
