@@ -139,6 +139,26 @@ docker-compose build
 docker-compose up -d
 ```
 
+### Permission Issues
+
+If you encounter permission errors like "Permission denied: '/storage/comfyui/input/...'", run the permission fix script:
+
+```bash
+sudo ./fix_permissions.sh
+```
+
+This script will:
+- Set the correct ownership for ComfyUI directories
+- Ensure the bot container can write to input/output directories
+- Fix permissions for both Docker socket access and file operations
+
+Then rebuild and restart the container:
+
+```bash
+docker compose down
+docker compose up --build -d
+```
+
 ### Smart Orientation Detection
 
 The bot automatically detects the optimal image orientation based on your prompt:
