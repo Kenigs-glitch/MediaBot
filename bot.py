@@ -47,7 +47,7 @@ logger.add(
 )
 
 # Initialize bot
-bot = TelegramClient(SESSION_FILE, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+bot = TelegramClient(SESSION_FILE, API_ID, API_HASH)
 
 # Conversation states
 WAITING_FOR = {}
@@ -700,4 +700,6 @@ if __name__ == "__main__":
         logger.info("No AI Agent integration available")
     
     logger.info("Bot started...")
+    # Start the bot properly
+    bot.start(bot_token=BOT_TOKEN)
     bot.run_until_disconnected() 
