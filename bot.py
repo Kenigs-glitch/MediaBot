@@ -21,13 +21,21 @@ from long_video import LongVideoGenerator
 from txt2img import generate_image_from_text
 from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access, wait_for_comfyui_ready
 
-# Import AI Agent integration
+# Import Adaptive AI Agent integration
+try:
+    from adaptive_bot_integration import register_adaptive_ai_handlers
+    ADAPTIVE_AI_AGENT_AVAILABLE = True
+except ImportError:
+    ADAPTIVE_AI_AGENT_AVAILABLE = False
+    logger.warning("Adaptive AI Agent integration not available - missing dependencies")
+
+# Import legacy AI Agent integration (fallback)
 try:
     from bot_ai_integration import register_ai_agent_handlers
-    AI_AGENT_AVAILABLE = True
+    LEGACY_AI_AGENT_AVAILABLE = True
 except ImportError:
-    AI_AGENT_AVAILABLE = False
-    logger.warning("AI Agent integration not available - missing dependencies")
+    LEGACY_AI_AGENT_AVAILABLE = False
+    logger.warning("Legacy AI Agent integration not available - missing dependencies")
 
 # Configure loguru
 logger.remove()  # Remove default handler
@@ -667,12 +675,15 @@ async def admin_handler(event):
         await event.respond(f"Error executing admin command: {str(e)}")
 
 if __name__ == "__main__":
-    # Register AI agent handlers if available
-    if AI_AGENT_AVAILABLE:
+    # Register adaptive AI agent handlers if available
+    if ADAPTIVE_AI_AGENT_AVAILABLE:
+        register_adaptive_ai_handlers()
+        logger.info("Adaptive AI Agent integration enabled")
+    elif LEGACY_AI_AGENT_AVAILABLE:
         register_ai_agent_handlers()
-        logger.info("AI Agent integration enabled")
+        logger.info("Legacy AI Agent integration enabled (fallback)")
     else:
-        logger.info("AI Agent integration disabled")
+        logger.info("No AI Agent integration available")
     
     logger.info("Bot started...")
     bot.run_until_disconnected() 
