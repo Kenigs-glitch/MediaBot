@@ -120,7 +120,7 @@ def get_latest_video(output_dir):
     output_dir = Path(output_dir)
     
     # First try date-based directory
-    today = "2025-08-12"
+    today = datetime.now().strftime("%Y-%m-%d")
     date_dir = output_dir / today
     
     video_files = []

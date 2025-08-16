@@ -2,6 +2,7 @@ import cv2
 import os
 from pathlib import Path
 from typing import List, Dict, Optional, Union
+from loguru import logger
 
 
 def get_video_info(video_path: str) -> Optional[Dict[str, Union[float, int]]]:
@@ -101,7 +102,7 @@ def concatenate_videos(video_paths: List[str], output_path: str, target_fps: Opt
     if not first_video_info:
         raise ValueError("Could not read first video properties")
     
-    output_fps = target_fps or 20.0
+    output_fps = target_fps or first_video_info.get('fps', 20.0)
     output_width = first_video_info['width']
     output_height = first_video_info['height']
     
@@ -113,9 +114,13 @@ def concatenate_videos(video_paths: List[str], output_path: str, target_fps: Opt
         raise ValueError("Could not create output video file")
     
     try:
-        for video_path in video_paths:
+        for i, video_path in enumerate(video_paths):
             cap = cv2.VideoCapture(video_path)
             
+            if not cap.isOpened():
+                logger.warning(f"Could not open video {video_path}, skipping...")
+                continue
+                
             while True:
                 ret, frame = cap.read()
                 if not ret:

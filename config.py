@@ -6,9 +6,17 @@ from pathlib import Path
 load_dotenv()
 
 # Bot Configuration
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+try:
+    API_ID = int(os.getenv('API_ID'))
+    API_HASH = os.getenv('API_HASH')
+    BOT_TOKEN = os.getenv('BOT_TOKEN')
+    
+    if not all([API_ID, API_HASH, BOT_TOKEN]):
+        raise ValueError("Missing required bot configuration")
+        
+except (ValueError, TypeError) as e:
+    raise ValueError(f"Invalid bot configuration: {e}. Please check your .env file.")
+
 ID_WHITELIST = set(int(id_) for id_ in os.getenv('ID_WHITELIST', '').split(',') if id_)
 
 # ComfyUI Configuration

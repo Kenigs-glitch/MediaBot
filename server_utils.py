@@ -2,19 +2,20 @@ import subprocess
 import logging
 import time
 import requests
+import asyncio
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def wait_for_comfyui_ready(url: str, max_wait_time: int = 120) -> bool:
+async def wait_for_comfyui_ready(url: str, max_wait_time: int = 120) -> bool:
     """
     Wait for ComfyUI to be ready to accept requests.
     Returns True if ComfyUI is ready, False if timeout.
     """
     logger.info(f"Waiting for ComfyUI to be ready at {url}...")
-    start_time = time.time()
+    start_time = asyncio.get_event_loop().time()
     
-    while time.time() - start_time < max_wait_time:
+    while asyncio.get_event_loop().time() - start_time < max_wait_time:
         try:
             # Try to connect to ComfyUI
             response = requests.get(f"{url}/system_stats", timeout=5)
@@ -25,7 +26,7 @@ def wait_for_comfyui_ready(url: str, max_wait_time: int = 120) -> bool:
             pass
         
         # Wait 2 seconds before next attempt
-        time.sleep(2)
+        await asyncio.sleep(2)
     
     logger.error(f"ComfyUI did not become ready within {max_wait_time} seconds")
     return False
@@ -49,10 +50,17 @@ def restart_comfyui() -> bool:
             return True
         else:
             logger.error(f"Failed to restart ComfyUI: {result.stderr}")
+            # Check if container doesn't exist
+            if "No such container" in result.stderr:
+                logger.info("ComfyUI container doesn't exist, attempting to start it")
+                return start_comfyui()
             return False
             
     except subprocess.TimeoutExpired:
         logger.error("Timeout while restarting ComfyUI")
+        return False
+    except FileNotFoundError:
+        logger.error("Docker command not found. Make sure Docker is installed and accessible")
         return False
     except Exception as e:
         logger.error(f"Error restarting ComfyUI: {e}")
@@ -86,6 +94,9 @@ def start_comfyui() -> bool:
             
     except subprocess.TimeoutExpired:
         logger.error("Timeout while starting ComfyUI")
+        return False
+    except FileNotFoundError:
+        logger.error("Docker command not found. Make sure Docker is installed and accessible")
         return False
     except Exception as e:
         logger.error(f"Error starting ComfyUI: {e}")

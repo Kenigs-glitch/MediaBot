@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from loguru import logger
 from PIL import Image
+from datetime import datetime
 
 # Configuration
 DREAMSHAPER_WORKFLOW_FILE = "dreamshaper_txt_to_img.json"
@@ -99,7 +100,7 @@ def get_latest_image(output_dir):
     output_dir = Path(output_dir)
     
     # First try date-based directory
-    today = "2025-08-12"
+    today = datetime.now().strftime("%Y-%m-%d")
     date_dir = output_dir / today
     
     image_files = []

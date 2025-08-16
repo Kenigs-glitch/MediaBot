@@ -14,10 +14,14 @@ from txt2img import generate_image_from_text
 from media_utils import process_image_to_video
 from long_video import LongVideoGenerator
 from config import COMFYUI_URL, COMFYUI_OUTPUT_DIR, WORKFLOW_FILE, GENERATION_TIMEOUT
+from server_utils import restart_comfyui, wait_for_comfyui_ready
 
 # Cerebras API Configuration
 CEREBRAS_API_URL = os.getenv('CEREBRAS_API_URL', 'https://api.cerebras.ai/v1')
 CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY')
+
+# Global state to track last workflow used (similar to bot.py)
+LAST_WORKFLOW = None  # 'txt2img' or 'video'
 
 @dataclass
 class ContentStrategy:
@@ -63,7 +67,33 @@ class SimpleAIAgent:
         self.cerebras_client = self._init_cerebras_client()
         self.db_path = Path("ai_agent_data.db")
         self._init_database()
+    
+    async def ensure_comfyui_ready_for_video(self):
+        """Ensure ComfyUI is ready for video generation by restarting if needed"""
+        global LAST_WORKFLOW
         
+        if LAST_WORKFLOW == 'txt2img':
+            logger.info("AI Agent: Switching from text-to-image to video workflow - restarting ComfyUI")
+            
+            if restart_comfyui():
+                logger.info("AI Agent: ComfyUI restarted successfully for video workflow")
+                
+                # Wait for ComfyUI to be ready
+                if await wait_for_comfyui_ready(COMFYUI_URL):
+                    logger.info("AI Agent: ComfyUI is ready for video workflow")
+                    LAST_WORKFLOW = 'video'
+                    return True
+                else:
+                    logger.error("AI Agent: ComfyUI did not become ready after restart")
+                    return False
+            else:
+                logger.error("AI Agent: Failed to restart ComfyUI for video workflow")
+                return False
+        
+        # If last workflow was video or None, no restart needed
+        LAST_WORKFLOW = 'video'
+        return True
+    
     def _init_cerebras_client(self):
         """Initialize Cerebras API client"""
         if not CEREBRAS_API_KEY:
@@ -434,11 +464,14 @@ class SimpleAIAgent:
     
     async def create_content(self, plan: ContentPlan) -> Optional[str]:
         """Create content using the plan"""
+        global LAST_WORKFLOW
+        
         try:
             logger.info(f"Creating content: {plan.title}")
             
-            # Generate initial image
+            # Generate initial image (set workflow to txt2img)
             logger.info("Generating initial image...")
+            LAST_WORKFLOW = 'txt2img'
             image_path = await generate_image_from_text(plan.prompt, COMFYUI_URL, COMFYUI_OUTPUT_DIR)
             
             if not image_path or not os.path.exists(image_path):
@@ -447,7 +480,11 @@ class SimpleAIAgent:
             
             # Create video based on content type
             if len(plan.segments) == 1:
-                # Single video
+                # Single video - ensure ComfyUI is ready for video generation
+                if not await self.ensure_comfyui_ready_for_video():
+                    logger.error("Failed to prepare ComfyUI for video generation")
+                    return None
+                
                 segment = plan.segments[0]
                 await process_image_to_video(
                     segment['prompt'], 
@@ -457,7 +494,11 @@ class SimpleAIAgent:
                     WORKFLOW_FILE
                 )
             else:
-                # Multi-segment video
+                # Multi-segment video - ensure ComfyUI is ready for video generation
+                if not await self.ensure_comfyui_ready_for_video():
+                    logger.error("Failed to prepare ComfyUI for video generation")
+                    return None
+                
                 generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
                 
                 video_path = await generator.generate_long_video(

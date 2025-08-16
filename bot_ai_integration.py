@@ -450,10 +450,15 @@ def register_ai_handlers():
         command_parts = event.text.strip().split()
         await handle_ai_command(event, command_parts)
 
+def register_ai_agent_handlers():
+    """Register legacy AI agent handlers with the existing bot (alias for register_ai_handlers)"""
+    register_ai_handlers()
+
 # Export functions for use in main bot
 __all__ = [
     'handle_ai_command',
     'register_ai_handlers',
+    'register_ai_agent_handlers',
     'AI_AGENT_INSTANCES',
     'AI_AGENT_TASKS'
 ] 

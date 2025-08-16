@@ -29,14 +29,6 @@ except ImportError:
     AI_AGENT_AVAILABLE = False
     logger.warning("AI Agent integration not available - missing dependencies")
 
-# Import Adaptive AI Agent integration (fallback)
-try:
-    from adaptive_bot_integration import register_adaptive_ai_handlers
-    ADAPTIVE_AI_AGENT_AVAILABLE = True
-except ImportError:
-    ADAPTIVE_AI_AGENT_AVAILABLE = False
-    logger.warning("Adaptive AI Agent integration not available - missing dependencies")
-
 # Import legacy AI Agent integration (fallback)
 try:
     from bot_ai_integration import register_ai_agent_handlers
@@ -81,7 +73,7 @@ async def ensure_comfyui_ready_for_video(event):
             
             # Wait for ComfyUI to be ready
             await event.respond("Waiting for ComfyUI to start up...")
-            if wait_for_comfyui_ready(COMFYUI_URL):
+            if await wait_for_comfyui_ready(COMFYUI_URL):
                 logger.info("ComfyUI is ready for video workflow")
                 LAST_WORKFLOW = 'video'
                 return True
@@ -602,12 +594,26 @@ def cleanup_user_data(user_id):
     """Clean up user data and temporary files"""
     if user_id in USER_DATA:
         try:
-            if 'image_path' in USER_DATA[user_id]:
-                os.remove(USER_DATA[user_id]['image_path'])
+            data = USER_DATA[user_id]
+            # Clean up image path if it exists
+            if 'image_path' in data and os.path.exists(data['image_path']):
+                os.remove(data['image_path'])
                 logger.info(f"Cleaned up input image for user {user_id}")
+            # Clean up any other temporary files
+            if 'temp_files' in data:
+                for temp_file in data['temp_files']:
+                    if os.path.exists(temp_file):
+                        try:
+                            os.remove(temp_file)
+                            logger.info(f"Cleaned up temporary file: {temp_file}")
+                        except Exception as e:
+                            logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
         except Exception as e:
-            logger.error(f"Failed to clean up input image for user {user_id}: {str(e)}")
-        del USER_DATA[user_id]
+            logger.error(f"Failed to clean up user data for user {user_id}: {str(e)}")
+        finally:
+            # Always remove from dictionaries
+            USER_DATA.pop(user_id, None)
+            WAITING_FOR.pop(user_id, None)
 
 @bot.on(events.NewMessage(pattern='/admin'))
 async def admin_handler(event):
@@ -687,9 +693,6 @@ if __name__ == "__main__":
     if AI_AGENT_AVAILABLE:
         register_ai_handlers()
         logger.info("AI Agent integration enabled")
-    elif ADAPTIVE_AI_AGENT_AVAILABLE:
-        register_adaptive_ai_handlers()
-        logger.info("Adaptive AI Agent integration enabled (fallback)")
     elif LEGACY_AI_AGENT_AVAILABLE:
         register_ai_agent_handlers()
         logger.info("Legacy AI Agent integration enabled (fallback)")
