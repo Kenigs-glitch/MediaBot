@@ -72,24 +72,35 @@ def check_comfyui_status() -> Optional[str]:
     Returns 'running', 'stopped', 'not_found', or None on error.
     """
     try:
+        logger.info("Checking ComfyUI status...")
         result = subprocess.run([
             "docker", "ps", "-a", "--format", "{{.Names}}:{{.Status}}"
         ], capture_output=True, text=True, timeout=10)
         
+        logger.info(f"Docker ps command return code: {result.returncode}")
+        logger.info(f"Docker ps stdout: {result.stdout}")
+        logger.info(f"Docker ps stderr: {result.stderr}")
+        
         if result.returncode != 0:
+            logger.error(f"Docker ps command failed with return code {result.returncode}")
             return None
             
         for line in result.stdout.strip().split('\n'):
+            logger.info(f"Processing line: {line}")
             if line.startswith('comfyui:'):
                 if 'Up' in line:
+                    logger.info("Found comfyui container running")
                     return 'running'
                 else:
+                    logger.info("Found comfyui container stopped")
                     return 'stopped'
         
+        logger.info("ComfyUI container not found")
         return 'not_found'
         
     except Exception as e:
         logger.error(f"Error checking ComfyUI status: {e}")
+        logger.exception("Full exception details:")
         return None
 
 def force_restart_comfyui() -> bool:
@@ -116,4 +127,34 @@ def force_restart_comfyui() -> bool:
         
     except Exception as e:
         logger.error(f"Error in force restart: {e}")
+        return False
+
+def test_docker_access() -> bool:
+    """
+    Test if Docker commands are accessible from within the container.
+    Returns True if Docker is accessible, False otherwise.
+    """
+    try:
+        logger.info("Testing Docker access...")
+        result = subprocess.run(
+            ["docker", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        logger.info(f"Docker version command return code: {result.returncode}")
+        logger.info(f"Docker version stdout: {result.stdout}")
+        logger.info(f"Docker version stderr: {result.stderr}")
+        
+        if result.returncode == 0:
+            logger.info("Docker access test successful")
+            return True
+        else:
+            logger.error("Docker access test failed")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error testing Docker access: {e}")
+        logger.exception("Full exception details:")
         return False 

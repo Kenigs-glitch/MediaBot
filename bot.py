@@ -18,7 +18,7 @@ from media_utils import (
     process_image_to_video
 )
 from long_video import LongVideoGenerator
-from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui
+from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access
 
 # Configure loguru
 logger.remove()  # Remove default handler
@@ -506,7 +506,8 @@ async def admin_handler(event):
             "/admin status - Check ComfyUI status\n"
             "/admin restart - Restart ComfyUI\n"
             "/admin force_restart - Force restart ComfyUI\n"
-            "/admin start - Start ComfyUI"
+            "/admin start - Start ComfyUI\n"
+            "/admin test_docker - Test Docker access"
         )
         return
     
@@ -543,6 +544,13 @@ async def admin_handler(event):
                 await event.respond("ComfyUI started successfully!")
             else:
                 await event.respond("Failed to start ComfyUI")
+        elif command == "test_docker":
+            await event.respond("Testing Docker access...")
+            success = test_docker_access()
+            if success:
+                await event.respond("Docker access test successful!")
+            else:
+                await event.respond("Docker access test failed - check logs")
         else:
             await event.respond("Unknown admin command")
             
