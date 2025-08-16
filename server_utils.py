@@ -73,6 +73,21 @@ def check_comfyui_status() -> Optional[str]:
     """
     try:
         logger.info("Checking ComfyUI status...")
+        
+        # First check if we can access docker socket
+        import os
+        docker_sock = "/var/run/docker.sock"
+        if os.path.exists(docker_sock):
+            logger.info(f"Docker socket exists at {docker_sock}")
+            # Check permissions
+            stat = os.stat(docker_sock)
+            logger.info(f"Docker socket permissions: {oct(stat.st_mode)}")
+            logger.info(f"Docker socket owner: {stat.st_uid}:{stat.st_gid}")
+            logger.info(f"Current user: {os.getuid()}:{os.getgid()}")
+        else:
+            logger.error(f"Docker socket not found at {docker_sock}")
+            return None
+        
         result = subprocess.run([
             "docker", "ps", "-a", "--format", "{{.Names}}:{{.Status}}"
         ], capture_output=True, text=True, timeout=10)
@@ -136,6 +151,8 @@ def test_docker_access() -> bool:
     """
     try:
         logger.info("Testing Docker access...")
+        
+        # Check if docker CLI is installed
         result = subprocess.run(
             ["docker", "--version"],
             capture_output=True,
@@ -146,6 +163,55 @@ def test_docker_access() -> bool:
         logger.info(f"Docker version command return code: {result.returncode}")
         logger.info(f"Docker version stdout: {result.stdout}")
         logger.info(f"Docker version stderr: {result.stderr}")
+        
+        if result.returncode != 0:
+            logger.error("Docker CLI not available")
+            return False
+        
+        # Check docker socket access
+        import os
+        docker_sock = "/var/run/docker.sock"
+        if not os.path.exists(docker_sock):
+            logger.error(f"Docker socket not found at {docker_sock}")
+            return False
+        
+        # Check permissions
+        stat = os.stat(docker_sock)
+        current_uid = os.getuid()
+        current_gid = os.getgid()
+        
+        logger.info(f"Docker socket permissions: {oct(stat.st_mode)}")
+        logger.info(f"Docker socket owner: {stat.st_uid}:{stat.st_gid}")
+        logger.info(f"Current user: {current_uid}:{current_gid}")
+        
+        # Check if user has access (owner, group, or other)
+        if stat.st_uid == current_uid:
+            logger.info("User owns docker socket")
+            has_access = True
+        elif stat.st_gid == current_gid:
+            logger.info("User is in docker group")
+            has_access = True
+        elif oct(stat.st_mode)[-1] == '6' or oct(stat.st_mode)[-1] == '7':  # Other has read/write
+            logger.info("User has other permissions on docker socket")
+            has_access = True
+        else:
+            logger.error("User has no access to docker socket")
+            has_access = False
+        
+        if not has_access:
+            return False
+        
+        # Test actual docker command
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        logger.info(f"Docker info command return code: {result.returncode}")
+        logger.info(f"Docker info stdout: {result.stdout[:200]}...")  # First 200 chars
+        logger.info(f"Docker info stderr: {result.stderr}")
         
         if result.returncode == 0:
             logger.info("Docker access test successful")
