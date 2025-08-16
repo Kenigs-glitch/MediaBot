@@ -37,9 +37,32 @@ bot = TelegramClient(SESSION_FILE, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 WAITING_FOR = {}
 USER_DATA = {}
 
+# Global state to track last workflow used
+LAST_WORKFLOW = None  # 'txt2img' or 'video'
+
 def is_authorized(user_id):
     """Check if user is in whitelist"""
     return user_id in ID_WHITELIST
+
+async def ensure_comfyui_ready_for_video(event):
+    """Ensure ComfyUI is ready for video generation by restarting if needed"""
+    global LAST_WORKFLOW
+    
+    if LAST_WORKFLOW == 'txt2img':
+        logger.info("Switching from text-to-image to video workflow - restarting ComfyUI")
+        await event.respond("Preparing ComfyUI for video generation...")
+        
+        if restart_comfyui():
+            logger.info("ComfyUI restarted successfully for video workflow")
+            LAST_WORKFLOW = 'video'
+            return True
+        else:
+            logger.error("Failed to restart ComfyUI for video workflow")
+            return False
+    
+    # If last workflow was video or None, no restart needed
+    LAST_WORKFLOW = 'video'
+    return True
 
 async def show_initial_menu(event):
     """Show the initial menu with video generation options"""
@@ -412,6 +435,12 @@ async def process_short_video(event, user_id):
         image_path = data['image_path']
         n_frames = data['frames']
         
+        # Ensure ComfyUI is ready for video generation
+        if not await ensure_comfyui_ready_for_video(event):
+            await event.respond("Failed to prepare ComfyUI for video generation. Please try again.")
+            await show_initial_menu(event)
+            return
+        
         # Process the video
         await event.respond("Processing your video... This may take a while.")
         await process_image_to_video(prompt, image_path, n_frames, COMFYUI_URL, WORKFLOW_FILE)
@@ -435,10 +464,15 @@ async def process_short_video(event, user_id):
 
 async def process_image_generation(event, user_id):
     """Process an image generation request"""
+    global LAST_WORKFLOW
+    
     try:
         # Get user data
         data = USER_DATA[user_id]
         prompt = data['prompt']
+        
+        # Set workflow type for text-to-image
+        LAST_WORKFLOW = 'txt2img'
         
         # Process the image generation
         await event.respond("Generating your image... This may take a while.")
@@ -478,6 +512,12 @@ async def process_long_video(event, user_id):
         
         # Check if this is a video extension (user sent a video)
         is_video_extension = data.get('is_video_extension', False)
+        
+        # Ensure ComfyUI is ready for video generation
+        if not await ensure_comfyui_ready_for_video(event):
+            await event.respond("Failed to prepare ComfyUI for video generation. Please try again.")
+            await show_initial_menu(event)
+            return
         
         # Process the video
         await event.respond("Processing your video... This may take a while.")
@@ -540,6 +580,7 @@ def cleanup_user_data(user_id):
 @bot.on(events.NewMessage(pattern='/admin'))
 async def admin_handler(event):
     """Handle admin commands for server management"""
+    global LAST_WORKFLOW
     user = await event.get_sender()
     
     if not is_authorized(event.sender_id):
@@ -574,6 +615,7 @@ async def admin_handler(event):
             await event.respond("Restarting ComfyUI...")
             success = restart_comfyui()
             if success:
+                LAST_WORKFLOW = None  # Reset workflow tracking
                 await event.respond("ComfyUI restarted successfully!")
             else:
                 await event.respond("Failed to restart ComfyUI")
@@ -582,6 +624,7 @@ async def admin_handler(event):
             await event.respond("Force restarting ComfyUI...")
             success = force_restart_comfyui()
             if success:
+                LAST_WORKFLOW = None  # Reset workflow tracking
                 await event.respond("ComfyUI force restarted successfully!")
             else:
                 await event.respond("Failed to force restart ComfyUI")
