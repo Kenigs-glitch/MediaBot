@@ -105,6 +105,27 @@ These commands are only available to users in the `ID_WHITELIST`.
 
 **Security Note**: The bot container has access to the Docker socket to manage ComfyUI. This provides full Docker daemon access, so ensure only trusted users are in the whitelist.
 
+### Docker Access Setup
+
+If you encounter "User has no access to docker socket" errors, run the setup script:
+
+```bash
+./setup_docker_access.sh
+```
+
+This script will:
+- Check if the docker group exists and get its GID
+- Verify your user is in the docker group
+- Check docker socket permissions
+- Export the correct environment variables
+
+Then rebuild and restart the container:
+
+```bash
+docker-compose build
+docker-compose up -d
+```
+
 ### Video Extension
 
 The bot supports using videos as input:

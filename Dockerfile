@@ -15,8 +15,10 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
 RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 RUN apt-get update && apt-get install -y docker-ce-cli && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
+# Create non-root user and add to docker group
 RUN groupadd -r botuser && useradd -r -g botuser -m botuser
+# Add botuser to docker group for socket access
+RUN usermod -aG docker botuser
 
 # Set working directory
 WORKDIR /app
