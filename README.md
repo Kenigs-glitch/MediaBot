@@ -1,18 +1,20 @@
 # MediaBot
 
-A Telegram bot that converts images and videos to videos using ComfyUI's image-to-video workflow.
+A Telegram bot that generates videos from images and creates images from text using ComfyUI workflows.
 
 ## Features
 
-- Image/video to video conversion with custom prompts
-- Support for both photo and document uploads (images and videos)
-- Long video generation with multiple segments
-- Multi-prompt format support for batch processing
-- Automatic media orientation detection and resolution adjustment
-- Video frame extraction and processing
-- Whitelist-based access control
-- Docker containerization
-- Clean separation of configuration through environment variables
+- **Text-to-Image Generation** 🖼️ - Generate images from text prompts using DreamShaper
+- **Image/Video to Video Conversion** 🎬 - Convert images and videos to videos with custom prompts
+- **Smart Orientation Detection** - Automatically detects portrait vs landscape based on prompt content
+- **Support for both photo and document uploads** (images and videos)
+- **Long video generation with multiple segments**
+- **Multi-prompt format support for batch processing**
+- **Automatic media orientation detection and resolution adjustment**
+- **Video frame extraction and processing**
+- **Whitelist-based access control**
+- **Docker containerization**
+- **Clean separation of configuration through environment variables**
 
 ## Prerequisites
 
@@ -60,14 +62,25 @@ docker-compose up -d
 1. Start a chat with your bot on Telegram
 2. Send the `/start` command
 3. Choose an option:
-   - "Short Video 🎬" for single segment videos
-   - "Long Video 🎥" for multi-segment videos
-4. Follow the bot's prompts:
-   - Enter a text prompt describing the desired video
-   - Send an image or video (as photo/video or document)
-   - For short videos: specify frames (2-125)
-   - For long videos: specify frames for each segment
-5. Wait for the bot to process your request and send back the video
+   - **"Generate Image 🖼️"** - Create images from text prompts
+   - **"Short Video 🎬"** - Generate single segment videos from images
+   - **"Long Video 🎥"** - Generate multi-segment videos from images
+
+#### Text-to-Image Generation
+1. Select "Generate Image 🖼️"
+2. Enter a detailed prompt describing the image you want to create
+3. The bot will automatically:
+   - Detect the optimal orientation (portrait/landscape) based on your prompt
+   - Generate a 720x1280 (portrait) or 1280x720 (landscape) image
+   - Send the generated image back to you
+
+#### Video Generation
+1. Select "Short Video 🎬" or "Long Video 🎥"
+2. Enter a text prompt describing the desired video
+3. Send an image or video (as photo/video or document)
+4. For short videos: specify frames (2-125)
+5. For long videos: specify frames for each segment
+6. Wait for the bot to process your request and send back the video
 
 ### Multi-Prompt Format
 
@@ -126,6 +139,22 @@ docker-compose build
 docker-compose up -d
 ```
 
+### Smart Orientation Detection
+
+The bot automatically detects the optimal image orientation based on your prompt content:
+
+**Portrait Orientation (720x1280)** is chosen for prompts containing:
+- Portrait, vertical, tall, standing
+- Person, human, figure, character
+- Full body, close up, face, head, bust
+- Selfie, profile, portrait shot
+
+**Landscape Orientation (1280x720)** is chosen for prompts containing:
+- Landscape, horizontal, wide, panorama
+- Scenery, nature, cityscape, street
+- Beach, mountain, forest, environment
+- Group, crowd, scene, background, setting
+
 ### Video Extension
 
 The bot supports using videos as input:
@@ -139,12 +168,35 @@ The bot supports using videos as input:
 ## Project Structure
 
 - `bot.py` - Main bot code with Telegram handlers and conversation flow
+- `txt2img.py` - Text-to-image generation using DreamShaper workflow
 - `media_utils.py` - Media processing utilities and ComfyUI integration
 - `long_video.py` - Long video generation utilities
-- `wan2.2_img_to_vid.json` - ComfyUI workflow configuration
+- `dreamshaper_txt_to_img.json` - DreamShaper text-to-image workflow configuration
+- `wan2.2_img_to_vid.json` - ComfyUI image-to-video workflow configuration
 - `Dockerfile` - Container configuration
 - `docker-compose.yml` - Service orchestration
 - `requirements.txt` - Python dependencies
+
+## Workflows
+
+The bot uses two different ComfyUI workflows:
+
+### DreamShaper Text-to-Image (`dreamshaper_txt_to_img.json`)
+- **Purpose**: Generate images from text prompts
+- **Model**: DreamShaperXL_Lightning.safetensors
+- **Features**: 
+  - Automatic prompt replacement
+  - Dynamic resolution based on content
+  - High-quality image generation
+  - Optimized for both portrait and landscape orientations
+
+### Image-to-Video (`wan2.2_img_to_vid.json`)
+- **Purpose**: Convert images to videos
+- **Features**:
+  - Custom prompt integration
+  - Variable frame count
+  - Video extension support
+  - Multi-segment processing
 
 ## License
 
