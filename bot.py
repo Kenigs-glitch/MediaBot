@@ -95,7 +95,49 @@ async def show_initial_menu(event):
         [Button.text("Long Video 🎥")],
         [Button.text("Generate Image 🖼️")]
     ]
-    return await event.respond("Choose an option:", buttons=keyboard)
+    return await event.respond("🎬 **Media Bot Ready**\n\nChoose what you'd like to create:", buttons=keyboard)
+
+async def show_help(event):
+    """Show help information"""
+    help_text = """
+🤖 **Media Bot Help**
+
+**Quick Start:**
+• Send `/start` to begin
+• Choose from the menu options
+• Follow the prompts to create your content
+
+**Available Features:**
+
+🎬 **Short Video** - Create videos up to 30 frames
+• Send a prompt describing your video
+• Upload an image or video
+• Specify number of frames (2-30)
+
+🎥 **Long Video** - Create longer videos with multiple segments
+• Send a prompt for the first segment
+• Upload an image or video
+• Add multiple segments with different prompts
+• Each segment: 2-30 frames, total up to 120 frames
+
+🖼️ **Generate Image** - Create images from text
+• Send a prompt describing your image
+• No media upload needed
+
+**Commands:**
+• `/start` - Show main menu
+• `/help` - Show this help
+• `/admin` - Admin commands (authorized users only)
+
+**Tips:**
+• Use descriptive prompts for better results
+• For video extension, upload a video file
+• For new videos, upload an image
+• Processing may take several minutes
+
+**Need help?** Contact the administrator.
+"""
+    await event.respond(help_text)
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
@@ -108,6 +150,18 @@ async def start_handler(event):
         return await event.respond("You are not authorized to use this bot.")
     
     await show_initial_menu(event)
+
+@bot.on(events.NewMessage(pattern='/help'))
+async def help_handler(event):
+    """Handle /help command"""
+    user = await event.get_sender()
+    logger.info(f"Help command received from user {user.id} (@{user.username})")
+    
+    if not is_authorized(event.sender_id):
+        logger.warning(f"Unauthorized help access attempt from user {user.id} (@{user.username})")
+        return await event.respond("You are not authorized to use this bot.")
+    
+    await show_help(event)
 
 def parse_multi_prompt_message(message_text):
     """Parse a message with multiple prompts and frame numbers.
@@ -212,8 +266,7 @@ async def message_handler(event):
                 
             except Exception as e:
                 logger.error(f"Error processing multi-prompt request for user {user_id}: {str(e)}")
-                await event.respond(f"An error occurred: {str(e)}")
-                await show_initial_menu(event)
+                await event.respond(f"❌ An error occurred: {str(e)}\n\n💡 Send `/start` to try again or `/help` for instructions.")
                 if 'download_path' in locals() and os.path.exists(download_path):
                     os.remove(download_path)
                 return
@@ -231,8 +284,12 @@ async def message_handler(event):
         return
     
     if user_id not in WAITING_FOR:
-        # Add default response for messages outside the flow
-        await show_initial_menu(event)
+        # Only show menu for specific keywords or commands, not for every message
+        if event.text.lower() in ['menu', 'start', 'begin', 'options']:
+            await show_initial_menu(event)
+        else:
+            # Give a helpful hint instead of showing the menu
+            await event.respond("💡 Send `/start` to see the main menu or `/help` for instructions.")
         return
     
     state = WAITING_FOR[user_id]
@@ -461,8 +518,7 @@ async def process_short_video(event, user_id):
         
         # Ensure ComfyUI is ready for video generation
         if not await ensure_comfyui_ready_for_video(event):
-            await event.respond("Failed to prepare ComfyUI for video generation. Please try again.")
-            await show_initial_menu(event)
+            await event.respond("❌ Failed to prepare ComfyUI for video generation. Please try again.\n\n💡 Send `/start` to try again or `/help` for instructions.")
             return
         
         # Process the video
@@ -477,14 +533,12 @@ async def process_short_video(event, user_id):
         WAITING_FOR.pop(user_id, None)
         USER_DATA.pop(user_id, None)
         
-        # Show success message and return to initial menu
-        await event.respond("Video processing completed!")
-        await show_initial_menu(event)
+        # Show success message without automatically showing menu
+        await event.respond("✅ Video processing completed!\n\n💡 Send `/start` to create more content or `/help` for instructions.")
         
     except Exception as e:
         logger.error(f"Error processing video for user {user_id}: {str(e)}")
-        await event.respond(f"An error occurred while processing your video: {str(e)}")
-        await show_initial_menu(event)
+        await event.respond(f"❌ An error occurred while processing your video: {str(e)}\n\n💡 Send `/start` to try again or `/help` for instructions.")
 
 async def process_image_generation(event, user_id):
     """Process an image generation request"""
@@ -519,14 +573,12 @@ async def process_image_generation(event, user_id):
         WAITING_FOR.pop(user_id, None)
         USER_DATA.pop(user_id, None)
         
-        # Show success message and return to initial menu
-        await event.respond("Image generation completed!")
-        await show_initial_menu(event)
+        # Show success message without automatically showing menu
+        await event.respond("✅ Image generation completed!\n\n💡 Send `/start` to create more content or `/help` for instructions.")
         
     except Exception as e:
         logger.error(f"Error processing image generation for user {user_id}: {str(e)}")
-        await event.respond(f"An error occurred while generating your image: {str(e)}")
-        await show_initial_menu(event)
+        await event.respond(f"❌ An error occurred while generating your image: {str(e)}\n\n💡 Send `/start` to try again or `/help` for instructions.")
 
 async def process_long_video(event, user_id):
     """Process a long video request"""
@@ -539,8 +591,7 @@ async def process_long_video(event, user_id):
         
         # Ensure ComfyUI is ready for video generation
         if not await ensure_comfyui_ready_for_video(event):
-            await event.respond("Failed to prepare ComfyUI for video generation. Please try again.")
-            await show_initial_menu(event)
+            await event.respond("❌ Failed to prepare ComfyUI for video generation. Please try again.\n\n💡 Send `/start` to try again or `/help` for instructions.")
             return
         
         # Process the video
@@ -581,14 +632,12 @@ async def process_long_video(event, user_id):
         WAITING_FOR.pop(user_id, None)
         USER_DATA.pop(user_id, None)
         
-        # Show success message and return to initial menu
-        await event.respond("Video processing completed!")
-        await show_initial_menu(event)
+        # Show success message without automatically showing menu
+        await event.respond("✅ Video processing completed!\n\n💡 Send `/start` to create more content or `/help` for instructions.")
         
     except Exception as e:
         logger.error(f"Error processing long video for user {user_id}: {str(e)}")
-        await event.respond(f"An error occurred while processing your video: {str(e)}")
-        await show_initial_menu(event)
+        await event.respond(f"❌ An error occurred while processing your video: {str(e)}\n\n💡 Send `/start` to try again or `/help` for instructions.")
 
 def cleanup_user_data(user_id):
     """Clean up user data and temporary files"""
