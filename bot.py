@@ -18,6 +18,7 @@ from media_utils import (
     process_image_to_video
 )
 from long_video import LongVideoGenerator
+from txt2img import generate_image_from_text
 from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access
 
 # Configure loguru
@@ -44,7 +45,8 @@ async def show_initial_menu(event):
     """Show the initial menu with video generation options"""
     keyboard = [
         [Button.text("Short Video 🎬")],
-        [Button.text("Long Video 🎥")]
+        [Button.text("Long Video 🎥")],
+        [Button.text("Generate Image 🖼️")]
     ]
     return await event.respond("Choose an option:", buttons=keyboard)
 
@@ -170,11 +172,15 @@ async def message_handler(event):
                 return
     
     # Handle the button press - clear previous state
-    if event.text in ["Short Video 🎬", "Long Video 🎥"]:
+    if event.text in ["Short Video 🎬", "Long Video 🎥", "Generate Image 🖼️"]:
         # Clear any previous state
         WAITING_FOR[user_id] = 'prompt'
-        USER_DATA[user_id] = {'mode': 'short' if event.text == "Short Video 🎬" else 'long'}
-        await event.respond("Please enter a prompt describing the video you want to generate:")
+        if event.text == "Generate Image 🖼️":
+            USER_DATA[user_id] = {'mode': 'image'}
+            await event.respond("Please enter a prompt describing the image you want to generate:")
+        else:
+            USER_DATA[user_id] = {'mode': 'short' if event.text == "Short Video 🎬" else 'long'}
+            await event.respond("Please enter a prompt describing the video you want to generate:")
         return
     
     if user_id not in WAITING_FOR:
@@ -188,9 +194,15 @@ async def message_handler(event):
     if state == 'prompt':
         USER_DATA[user_id]['prompt'] = event.text
         logger.info(f"Saved prompt for user {user_id}: {event.text}")
-        WAITING_FOR[user_id] = 'media'
-        await event.respond("Please send an image or video:")
-        return
+        
+        if USER_DATA[user_id]['mode'] == 'image':
+            # For image generation, we don't need media input
+            await process_image_generation(event, user_id)
+            return
+        else:
+            WAITING_FOR[user_id] = 'media'
+            await event.respond("Please send an image or video:")
+            return
         
     elif state == 'media':
         is_img = await is_image(event.message)
@@ -419,6 +431,43 @@ async def process_short_video(event, user_id):
     except Exception as e:
         logger.error(f"Error processing video for user {user_id}: {str(e)}")
         await event.respond(f"An error occurred while processing your video: {str(e)}")
+        await show_initial_menu(event)
+
+async def process_image_generation(event, user_id):
+    """Process an image generation request"""
+    try:
+        # Get user data
+        data = USER_DATA[user_id]
+        prompt = data['prompt']
+        
+        # Process the image generation
+        await event.respond("Generating your image... This may take a while.")
+        image_path = await generate_image_from_text(prompt, COMFYUI_URL, COMFYUI_OUTPUT_DIR)
+        
+        # Send the generated image
+        if os.path.exists(image_path):
+            logger.info(f"Sending generated image to user {user_id}: {image_path}")
+            await bot.send_file(event.chat_id, image_path)
+            logger.info(f"Image sent successfully to user {user_id}")
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                logger.error(f"Failed to clean up image for user {user_id}: {str(e)}")
+        else:
+            logger.error(f"No output image found for user {user_id}")
+            await event.respond("No output image found.")
+        
+        # Reset state
+        WAITING_FOR.pop(user_id, None)
+        USER_DATA.pop(user_id, None)
+        
+        # Show success message and return to initial menu
+        await event.respond("Image generation completed!")
+        await show_initial_menu(event)
+        
+    except Exception as e:
+        logger.error(f"Error processing image generation for user {user_id}: {str(e)}")
+        await event.respond(f"An error occurred while generating your image: {str(e)}")
         await show_initial_menu(event)
 
 async def process_long_video(event, user_id):
