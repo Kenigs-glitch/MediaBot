@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     network_mode: host  # Use host networking to access ComfyUI
     user: "${CURRENT_UID:-1000}:${DOCKER_GID:-999}"  # Use host user's UID and docker group GID
+    environment:
+      - CURRENT_UID=${CURRENT_UID:-1000}
+      - DOCKER_GID=${DOCKER_GID:-999}
     volumes:
       - ./.env:/app/.env:ro
       - ./sessions:/app/sessions
