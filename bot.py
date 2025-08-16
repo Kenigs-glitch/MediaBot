@@ -124,16 +124,39 @@ async def show_help(event):
 • Send a prompt describing your image
 • No media upload needed
 
+🤖 **AI Agent** - Smart content strategy assistant
+• Learn and optimize content strategies
+• Generate content ideas and plans
+• Track performance and analyze results
+• Export project data
+
 **Commands:**
 • `/start` - Show main menu
 • `/help` - Show this help
 • `/admin` - Admin commands (authorized users only)
+
+**AI Agent Commands:**
+• `/ai learn [project] [strategy_name] [instructions]` - Learn new strategy
+• `/ai create [project] [topic] [strategy]` - Generate content
+• `/ai plan [project] [topic] [strategy]` - Create content plan
+• `/ai strategies [project]` - List strategies
+• `/ai performance [project] [strategy] [metrics]` - Update performance
+• `/ai history [project] [strategy]` - View performance history
+• `/ai export [project]` - Export project data
+
+**AI Agent Examples:**
+```
+/ai learn my_project viral_strategy "Create 10-second hooks leading to 2-minute deep dives for maximum engagement"
+/ai create my_project "Ancient Rome's social systems" viral_strategy
+/ai performance my_project viral_strategy "views:50000,likes:2500,shares:500"
+```
 
 **Tips:**
 • Use descriptive prompts for better results
 • For video extension, upload a video file
 • For new videos, upload an image
 • Processing may take several minutes
+• AI Agent helps optimize your content strategy
 
 **Need help?** Contact the administrator.
 """
