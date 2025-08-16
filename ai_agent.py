@@ -17,7 +17,13 @@ from config import COMFYUI_URL, COMFYUI_OUTPUT_DIR, WORKFLOW_FILE, GENERATION_TI
 from server_utils import restart_comfyui, wait_for_comfyui_ready
 
 # Cerebras API Configuration
-CEREBRAS_API_URL = os.getenv('CEREBRAS_API_URL', 'https://api.cerebras.ai/v1')
+try:
+    from cerebras.cloud.sdk import Cerebras
+    CEREBRAS_AVAILABLE = True
+except ImportError:
+    CEREBRAS_AVAILABLE = False
+    logger.warning("Cerebras SDK not available - AI agent features will be limited")
+
 CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY')
 
 # Global state to track last workflow used (similar to bot.py)
@@ -96,17 +102,16 @@ class SimpleAIAgent:
     
     def _init_cerebras_client(self):
         """Initialize Cerebras API client"""
+        if not CEREBRAS_AVAILABLE:
+            raise ValueError("Cerebras SDK is not available. Please install it.")
+        
         if not CEREBRAS_API_KEY:
             raise ValueError("CEREBRAS_API_KEY environment variable is required")
         
-        return {
-            'api_key': CEREBRAS_API_KEY,
-            'base_url': CEREBRAS_API_URL,
-            'headers': {
-                'Authorization': f'Bearer {CEREBRAS_API_KEY}',
-                'Content-Type': 'application/json'
-            }
-        }
+        return Cerebras(
+            api_key=CEREBRAS_API_KEY,
+            base_url="https://api.cerebras.ai/v1" # Cerebras API base URL
+        )
     
     def _init_database(self):
         """Initialize SQLite database for storing strategies and plans"""
@@ -167,93 +172,70 @@ class SimpleAIAgent:
         conn.close()
     
     async def learn_strategy(self, user_instructions: str, strategy_name: str) -> Dict:
-        """Learn and create a new strategy entirely from user instructions"""
+        """Learn a new strategy from user instructions"""
         try:
-            # Analyze user instructions using Cerebras API
-            analysis_prompt = f"""
-            Analyze these user instructions for TikTok content creation and extract structured data.
+            # Generate strategy using Cerebras API
+            strategy_prompt = f"""
+            Create a TikTok content strategy from these user instructions:
             
-            User Instructions: "{user_instructions}"
+            Instructions: "{user_instructions}"
+            Strategy Name: "{strategy_name}"
             
-            Extract and return ONLY a JSON object with this exact structure:
+            Generate ONLY a JSON response with this structure:
             {{
-                "description": "Brief description of the content strategy",
+                "description": "Brief description of the strategy",
                 "content_type": "single/series/ladder/documentary",
                 "duration_range": {{
-                    "min": 10,
-                    "max": 300,
-                    "optimal": 90
+                    "min": 15,
+                    "max": 180,
+                    "optimal": 60
                 }},
                 "target_audience": "Description of target audience",
-                "viral_formula": "hook_to_payoff/progressive_learning/investigative_revelation/transformation_reveal",
+                "viral_formula": "hook_to_payoff/progressive_learning/investigative/etc",
                 "psychological_triggers": ["curiosity", "surprise", "satisfaction"],
                 "hashtags": ["#relevant", "#hashtags"],
                 "monetization_strategy": {{
                     "primary": "creator_rewards/tiktok_shop/brand_sponsorships",
                     "secondary": "affiliate_marketing/course_sales",
-                    "target_revenue_per_1k_views": 0.80
+                    "target_revenue_per_1k": 5.0
                 }},
                 "prompt_templates": [
                     "Template 1 for content generation",
                     "Template 2 for content generation"
                 ]
             }}
-            
-            Focus on extracting the user's specific requirements and preferences.
             """
             
-            response = requests.post(
-                f"{self.cerebras_client['base_url']}/chat/completions",
-                headers=self.cerebras_client['headers'],
-                json={
-                    "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": analysis_prompt}],
-                    "max_tokens": 800,
-                    "temperature": 0.7
-                }
+            response = self.cerebras_client.chat.completions.create(
+                model="cerebras-llama-3.1-8b-instruct",
+                messages=[{"role": "user", "content": strategy_prompt}],
+                max_tokens=800,
+                temperature=0.7
             )
             
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content']
+            if response.choices and response.choices[0].message.content:
+                content = response.choices[0].message.content
                 json_start = content.find('{')
                 json_end = content.rfind('}') + 1
                 if json_start != -1 and json_end != 0:
-                    analysis = json.loads(content[json_start:json_end])
+                    strategy_data = json.loads(content[json_start:json_end])
                     
-                    # Create strategy object
-                    strategy = ContentStrategy(
-                        project_id=self.project_id,
-                        name=strategy_name,
-                        description=analysis['description'],
-                        user_instructions=user_instructions,
-                        content_type=analysis['content_type'],
-                        duration_range=analysis['duration_range'],
-                        target_audience=analysis['target_audience'],
-                        viral_formula=analysis['viral_formula'],
-                        psychological_triggers=analysis['psychological_triggers'],
-                        hashtags=analysis['hashtags'],
-                        monetization_strategy=analysis['monetization_strategy'],
-                        prompt_templates=analysis['prompt_templates'],
-                        created_at=datetime.now().isoformat(),
-                        updated_at=datetime.now().isoformat()
-                    )
-                    
-                    # Save to database
-                    self._save_strategy(strategy)
+                    # Save strategy to database
+                    self._save_strategy(strategy_name, user_instructions, strategy_data)
                     
                     return {
                         'status': 'success',
-                        'strategy': strategy.to_dict(),
-                        'message': f"Strategy '{strategy_name}' learned successfully"
+                        'strategy_name': strategy_name,
+                        'data': strategy_data
                     }
             
-            return {'status': 'error', 'message': 'Failed to analyze instructions'}
+            return {'status': 'error', 'message': 'Failed to generate strategy'}
             
         except Exception as e:
             logger.error(f"Error learning strategy: {e}")
             return {'status': 'error', 'message': str(e)}
     
-    def _save_strategy(self, strategy: ContentStrategy):
+    def _save_strategy(self, strategy_name: str, user_instructions: str, strategy_data: Dict):
         """Save strategy to database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -261,20 +243,20 @@ class SimpleAIAgent:
         cursor.execute('''
             INSERT OR REPLACE INTO strategies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            strategy.project_id,
-            strategy.name,
-            strategy.description,
-            strategy.user_instructions,
-            strategy.content_type,
-            json.dumps(strategy.duration_range),
-            strategy.target_audience,
-            strategy.viral_formula,
-            json.dumps(strategy.psychological_triggers),
-            json.dumps(strategy.hashtags),
-            json.dumps(strategy.monetization_strategy),
-            json.dumps(strategy.prompt_templates),
-            strategy.created_at,
-            strategy.updated_at
+            self.project_id,
+            strategy_name,
+            strategy_data['description'],
+            user_instructions,
+            strategy_data['content_type'],
+            json.dumps(strategy_data['duration_range']),
+            strategy_data['target_audience'],
+            strategy_data['viral_formula'],
+            json.dumps(strategy_data['psychological_triggers']),
+            json.dumps(strategy_data['hashtags']),
+            json.dumps(strategy_data['monetization_strategy']),
+            json.dumps(strategy_data['prompt_templates']),
+            datetime.now().isoformat(),
+            datetime.now().isoformat()
         ))
         
         conn.commit()
@@ -395,19 +377,15 @@ class SimpleAIAgent:
             }}
             """
             
-            response = requests.post(
-                f"{self.cerebras_client['base_url']}/chat/completions",
-                headers=self.cerebras_client['headers'],
-                json={
-                    "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": plan_prompt}],
-                    "max_tokens": 1000,
-                    "temperature": 0.8
-                }
+            response = self.cerebras_client.chat.completions.create(
+                model="cerebras-llama-3.1-8b-instruct",
+                messages=[{"role": "user", "content": plan_prompt}],
+                max_tokens=1000,
+                temperature=0.8
             )
             
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content']
+            if response.choices and response.choices[0].message.content:
+                content = response.choices[0].message.content
                 json_start = content.find('{')
                 json_end = content.rfind('}') + 1
                 if json_start != -1 and json_end != 0:
@@ -546,19 +524,15 @@ class SimpleAIAgent:
             }}
             """
             
-            response = requests.post(
-                f"{self.cerebras_client['base_url']}/chat/completions",
-                headers=self.cerebras_client['headers'],
-                json={
-                    "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": analysis_prompt}],
-                    "max_tokens": 500,
-                    "temperature": 0.5
-                }
+            response = self.cerebras_client.chat.completions.create(
+                model="cerebras-llama-3.1-8b-instruct",
+                messages=[{"role": "user", "content": analysis_prompt}],
+                max_tokens=500,
+                temperature=0.5
             )
             
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content']
+            if response.choices and response.choices[0].message.content:
+                content = response.choices[0].message.content
                 json_start = content.find('{')
                 json_end = content.rfind('}') + 1
                 if json_start != -1 and json_end != 0:

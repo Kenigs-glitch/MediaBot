@@ -71,6 +71,8 @@ CEREBRAS_API_KEY=your_cerebras_api_key_here
 docker-compose up -d
 ```
 
+**Note**: The AI agent features require the Cerebras Cloud SDK. If you don't have a Cerebras API key, the bot will still work for basic media generation features.
+
 ## Usage
 
 ### Basic Media Generation
@@ -382,11 +384,12 @@ Use `/ai export [project]` to get:
 4. **Database errors** - Check file permissions for `ai_agent_data.db`
 5. **Docker access issues** - Run `./setup_docker_access.sh`
 6. **Permission errors** - Run `sudo ./fix_permissions.sh`
+7. **Cerebras SDK not available** - Install with `pip install cerebras-cloud-sdk`
 
 ### Getting Help
 - Check bot logs for error messages
 - Verify Cerebras API key is configured (for AI features)
-- Ensure all dependencies are installed
+- Ensure all dependencies are installed: `pip install -r requirements.txt`
 - Test with simple instructions first
 
 ## License

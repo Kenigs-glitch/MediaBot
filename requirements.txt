@@ -8,3 +8,4 @@ opencv-python==4.12.0.88
 # AI Agent dependencies
 dataclasses-json==0.6.3
 aiohttp==3.9.1
+cerebras-cloud-sdk
