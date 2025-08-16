@@ -21,13 +21,13 @@ from long_video import LongVideoGenerator
 from txt2img import generate_image_from_text
 from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access, wait_for_comfyui_ready
 
-# Import Simple AI Agent integration (primary)
+# Import AI Agent integration (primary)
 try:
-    from simple_bot_integration import register_simple_ai_handlers
-    SIMPLE_AI_AGENT_AVAILABLE = True
+    from bot_ai_integration import register_ai_handlers
+    AI_AGENT_AVAILABLE = True
 except ImportError:
-    SIMPLE_AI_AGENT_AVAILABLE = False
-    logger.warning("Simple AI Agent integration not available - missing dependencies")
+    AI_AGENT_AVAILABLE = False
+    logger.warning("AI Agent integration not available - missing dependencies")
 
 # Import Adaptive AI Agent integration (fallback)
 try:
@@ -683,10 +683,10 @@ async def admin_handler(event):
         await event.respond(f"Error executing admin command: {str(e)}")
 
 if __name__ == "__main__":
-    # Register simple AI agent handlers if available (primary)
-    if SIMPLE_AI_AGENT_AVAILABLE:
-        register_simple_ai_handlers()
-        logger.info("Simple AI Agent integration enabled")
+    # Register AI agent handlers if available (primary)
+    if AI_AGENT_AVAILABLE:
+        register_ai_handlers()
+        logger.info("AI Agent integration enabled")
     elif ADAPTIVE_AI_AGENT_AVAILABLE:
         register_adaptive_ai_handlers()
         logger.info("Adaptive AI Agent integration enabled (fallback)")

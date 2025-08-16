@@ -2,11 +2,12 @@ import os
 import json
 import asyncio
 import requests
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, asdict
 from loguru import logger
-import random
+import sqlite3
+from pathlib import Path
 
 # Import existing MediaBot functions
 from txt2img import generate_image_from_text
@@ -20,36 +21,48 @@ CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY')
 
 @dataclass
 class ContentStrategy:
-    """Content strategy configuration for TikTok videos"""
-    niche: str
+    """Content strategy created entirely from user input"""
+    project_id: str
+    name: str
+    description: str
+    user_instructions: str
+    content_type: str
+    duration_range: Dict[str, int]  # min, max, optimal
     target_audience: str
-    content_type: str  # 'educational', 'entertainment', 'transformative', 'mystery'
-    viral_formula: str  # 'hook_body_conclusion', 'transformation_reveal', 'mystery_hook'
+    viral_formula: str
     psychological_triggers: List[str]
-    optimal_duration: int  # seconds
     hashtags: List[str]
-    monetization_potential: float  # $ per 1000 views
+    monetization_strategy: Dict[str, Any]
+    prompt_templates: List[str]
+    created_at: str
+    updated_at: str
+    
+    def to_dict(self):
+        return asdict(self)
 
 @dataclass
 class ContentPlan:
-    """Individual content piece plan"""
+    """Content plan generated from strategy"""
+    project_id: str
+    strategy_name: str
     title: str
     description: str
-    prompt: str
-    target_duration: int
+    topic: str
+    duration: int
     segments: List[Dict]
     hashtags: List[str]
-    posting_time: datetime
-    expected_performance: Dict
+    expected_performance: Dict[str, Any]
+    prompt: str
+    created_at: str
 
-class TikTokAIAgent:
-    """AI Agent for automated TikTok content creation using Cerebras API"""
+class SimpleAIAgent:
+    """Simple AI Agent that learns strategies entirely from user input"""
     
-    def __init__(self):
+    def __init__(self, project_id: str):
+        self.project_id = project_id
         self.cerebras_client = self._init_cerebras_client()
-        self.content_strategies = self._load_content_strategies()
-        self.trending_topics = []
-        self.performance_history = []
+        self.db_path = Path("ai_agent_data.db")
+        self._init_database()
         
     def _init_cerebras_client(self):
         """Initialize Cerebras API client"""
@@ -65,63 +78,98 @@ class TikTokAIAgent:
             }
         }
     
-    def _load_content_strategies(self) -> Dict[str, ContentStrategy]:
-        """Load predefined content strategies based on TikTok strategy document"""
-        return {
-            'invisible_expertise': ContentStrategy(
-                niche='invisible_expertise',
-                target_audience='DIY enthusiasts, professionals',
-                content_type='educational',
-                viral_formula='hook_body_conclusion',
-                psychological_triggers=['curiosity', 'expertise', 'satisfaction'],
-                optimal_duration=21,
-                hashtags=['#DIY', '#HowTo', '#LifeHacks', '#ExpertTips'],
-                monetization_potential=0.80
-            ),
-            'historical_humor': ContentStrategy(
-                niche='historical_humor',
-                target_audience='history buffs, comedy lovers',
-                content_type='entertainment',
-                viral_formula='transformation_reveal',
-                psychological_triggers=['surprise', 'humor', 'novelty'],
-                optimal_duration=34,
-                hashtags=['#History', '#Funny', '#HistoricalFacts', '#Comedy'],
-                monetization_potential=0.60
-            ),
-            'marine_education': ContentStrategy(
-                niche='marine_education',
-                target_audience='nature lovers, science enthusiasts',
-                content_type='educational',
-                viral_formula='mystery_hook',
-                psychological_triggers=['awe', 'curiosity', 'fear'],
-                optimal_duration=28,
-                hashtags=['#Ocean', '#MarineLife', '#Science', '#Nature'],
-                monetization_potential=0.90
-            ),
-            'geographic_micro_niche': ContentStrategy(
-                niche='geographic_micro_niche',
-                target_audience='cultural enthusiasts, travelers',
-                content_type='educational',
-                viral_formula='hook_body_conclusion',
-                psychological_triggers=['belonging', 'curiosity', 'pride'],
-                optimal_duration=25,
-                hashtags=['#Culture', '#Travel', '#Heritage', '#Community'],
-                monetization_potential=0.70
+    def _init_database(self):
+        """Initialize SQLite database for storing strategies and plans"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Create strategies table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS strategies (
+                project_id TEXT,
+                name TEXT,
+                description TEXT,
+                user_instructions TEXT,
+                content_type TEXT,
+                duration_range TEXT,
+                target_audience TEXT,
+                viral_formula TEXT,
+                psychological_triggers TEXT,
+                hashtags TEXT,
+                monetization_strategy TEXT,
+                prompt_templates TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (project_id, name)
             )
-        }
+        ''')
+        
+        # Create content_plans table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS content_plans (
+                project_id TEXT,
+                strategy_name TEXT,
+                title TEXT,
+                description TEXT,
+                topic TEXT,
+                duration INTEGER,
+                segments TEXT,
+                hashtags TEXT,
+                expected_performance TEXT,
+                prompt TEXT,
+                created_at TEXT
+            )
+        ''')
+        
+        # Create performance_data table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS performance_data (
+                project_id TEXT,
+                strategy_name TEXT,
+                content_title TEXT,
+                metrics TEXT,
+                analysis TEXT,
+                created_at TEXT
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
     
-    async def analyze_trending_topics(self) -> List[str]:
-        """Analyze current trending topics using Cerebras API"""
+    async def learn_strategy(self, user_instructions: str, strategy_name: str) -> Dict:
+        """Learn and create a new strategy entirely from user instructions"""
         try:
-            prompt = """
-            Analyze current TikTok trends and identify 10 trending topics that would work well for AI-generated content.
-            Focus on topics that:
-            1. Have high engagement potential
-            2. Can be visualized effectively with AI
-            3. Haven't been oversaturated with AI content
-            4. Align with educational or entertainment value
+            # Analyze user instructions using Cerebras API
+            analysis_prompt = f"""
+            Analyze these user instructions for TikTok content creation and extract structured data.
             
-            Return only the topic names, one per line.
+            User Instructions: "{user_instructions}"
+            
+            Extract and return ONLY a JSON object with this exact structure:
+            {{
+                "description": "Brief description of the content strategy",
+                "content_type": "single/series/ladder/documentary",
+                "duration_range": {{
+                    "min": 10,
+                    "max": 300,
+                    "optimal": 90
+                }},
+                "target_audience": "Description of target audience",
+                "viral_formula": "hook_to_payoff/progressive_learning/investigative_revelation/transformation_reveal",
+                "psychological_triggers": ["curiosity", "surprise", "satisfaction"],
+                "hashtags": ["#relevant", "#hashtags"],
+                "monetization_strategy": {{
+                    "primary": "creator_rewards/tiktok_shop/brand_sponsorships",
+                    "secondary": "affiliate_marketing/course_sales",
+                    "target_revenue_per_1k_views": 0.80
+                }},
+                "prompt_templates": [
+                    "Template 1 for content generation",
+                    "Template 2 for content generation"
+                ]
+            }}
+            
+            Focus on extracting the user's specific requirements and preferences.
             """
             
             response = requests.post(
@@ -129,55 +177,181 @@ class TikTokAIAgent:
                 headers=self.cerebras_client['headers'],
                 json={
                     "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 500,
+                    "messages": [{"role": "user", "content": analysis_prompt}],
+                    "max_tokens": 800,
                     "temperature": 0.7
                 }
             )
             
             if response.status_code == 200:
-                topics = response.json()['choices'][0]['message']['content'].strip().split('\n')
-                self.trending_topics = [topic.strip() for topic in topics if topic.strip()]
-                logger.info(f"Analyzed {len(self.trending_topics)} trending topics")
-                return self.trending_topics
-            else:
-                logger.error(f"Failed to analyze trending topics: {response.status_code}")
-                return []
-                
+                content = response.json()['choices'][0]['message']['content']
+                json_start = content.find('{')
+                json_end = content.rfind('}') + 1
+                if json_start != -1 and json_end != 0:
+                    analysis = json.loads(content[json_start:json_end])
+                    
+                    # Create strategy object
+                    strategy = ContentStrategy(
+                        project_id=self.project_id,
+                        name=strategy_name,
+                        description=analysis['description'],
+                        user_instructions=user_instructions,
+                        content_type=analysis['content_type'],
+                        duration_range=analysis['duration_range'],
+                        target_audience=analysis['target_audience'],
+                        viral_formula=analysis['viral_formula'],
+                        psychological_triggers=analysis['psychological_triggers'],
+                        hashtags=analysis['hashtags'],
+                        monetization_strategy=analysis['monetization_strategy'],
+                        prompt_templates=analysis['prompt_templates'],
+                        created_at=datetime.now().isoformat(),
+                        updated_at=datetime.now().isoformat()
+                    )
+                    
+                    # Save to database
+                    self._save_strategy(strategy)
+                    
+                    return {
+                        'status': 'success',
+                        'strategy': strategy.to_dict(),
+                        'message': f"Strategy '{strategy_name}' learned successfully"
+                    }
+            
+            return {'status': 'error', 'message': 'Failed to analyze instructions'}
+            
         except Exception as e:
-            logger.error(f"Error analyzing trending topics: {e}")
-            return []
+            logger.error(f"Error learning strategy: {e}")
+            return {'status': 'error', 'message': str(e)}
     
-    async def generate_content_plan(self, strategy: ContentStrategy, topic: str) -> ContentPlan:
-        """Generate a complete content plan using Cerebras API"""
+    def _save_strategy(self, strategy: ContentStrategy):
+        """Save strategy to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO strategies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            strategy.project_id,
+            strategy.name,
+            strategy.description,
+            strategy.user_instructions,
+            strategy.content_type,
+            json.dumps(strategy.duration_range),
+            strategy.target_audience,
+            strategy.viral_formula,
+            json.dumps(strategy.psychological_triggers),
+            json.dumps(strategy.hashtags),
+            json.dumps(strategy.monetization_strategy),
+            json.dumps(strategy.prompt_templates),
+            strategy.created_at,
+            strategy.updated_at
+        ))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_strategies(self) -> List[Dict]:
+        """Get all strategies for this project"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM strategies WHERE project_id = ?
+        ''', (self.project_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        strategies = []
+        for row in rows:
+            strategy = {
+                'project_id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'user_instructions': row[3],
+                'content_type': row[4],
+                'duration_range': json.loads(row[5]),
+                'target_audience': row[6],
+                'viral_formula': row[7],
+                'psychological_triggers': json.loads(row[8]),
+                'hashtags': json.loads(row[9]),
+                'monetization_strategy': json.loads(row[10]),
+                'prompt_templates': json.loads(row[11]),
+                'created_at': row[12],
+                'updated_at': row[13]
+            }
+            strategies.append(strategy)
+        
+        return strategies
+    
+    def get_strategy(self, strategy_name: str) -> Optional[Dict]:
+        """Get specific strategy by name"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM strategies WHERE project_id = ? AND name = ?
+        ''', (self.project_id, strategy_name))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'project_id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'user_instructions': row[3],
+                'content_type': row[4],
+                'duration_range': json.loads(row[5]),
+                'target_audience': row[6],
+                'viral_formula': row[7],
+                'psychological_triggers': json.loads(row[8]),
+                'hashtags': json.loads(row[9]),
+                'monetization_strategy': json.loads(row[10]),
+                'prompt_templates': json.loads(row[11]),
+                'created_at': row[12],
+                'updated_at': row[13]
+            }
+        
+        return None
+    
+    async def generate_content_plan(self, topic: str, strategy_name: str) -> Optional[ContentPlan]:
+        """Generate content plan using learned strategy"""
         try:
-            prompt = f"""
-            Create a TikTok content plan for topic: "{topic}"
+            # Get strategy from database
+            strategy_data = self.get_strategy(strategy_name)
+            if not strategy_data:
+                logger.error(f"Strategy '{strategy_name}' not found")
+                return None
             
-            Strategy details:
-            - Niche: {strategy.niche}
-            - Target audience: {strategy.target_audience}
-            - Content type: {strategy.content_type}
-            - Viral formula: {strategy.viral_formula}
-            - Psychological triggers: {', '.join(strategy.psychological_triggers)}
-            - Target duration: {strategy.optimal_duration} seconds
+            # Generate content plan using Cerebras API
+            plan_prompt = f"""
+            Create a TikTok content plan using this strategy:
             
-            Generate a JSON response with the following structure:
+            Strategy: {strategy_data['name']}
+            Description: {strategy_data['description']}
+            User Instructions: {strategy_data['user_instructions']}
+            Content Type: {strategy_data['content_type']}
+            Duration Range: {strategy_data['duration_range']['min']}-{strategy_data['duration_range']['max']} seconds
+            Target Audience: {strategy_data['target_audience']}
+            Viral Formula: {strategy_data['viral_formula']}
+            Psychological Triggers: {', '.join(strategy_data['psychological_triggers'])}
+            Hashtags: {', '.join(strategy_data['hashtags'])}
+            
+            Topic: "{topic}"
+            
+            Generate ONLY a JSON response with this structure:
             {{
                 "title": "Engaging title for the video",
                 "description": "Brief description of the content",
-                "prompt": "Detailed prompt for AI image/video generation",
-                "target_duration": {strategy.optimal_duration},
+                "duration": {strategy_data['duration_range']['optimal']},
                 "segments": [
                     {{
-                        "prompt": "Segment 1 prompt",
+                        "prompt": "Detailed prompt for AI generation",
                         "frames": 50,
-                        "duration": 10
-                    }},
-                    {{
-                        "prompt": "Segment 2 prompt", 
-                        "frames": 50,
-                        "duration": 10
+                        "duration": 15,
+                        "purpose": "hook/content/conclusion"
                     }}
                 ],
                 "hashtags": ["#relevant", "#hashtags"],
@@ -186,10 +360,9 @@ class TikTokAIAgent:
                     "likes": 2500,
                     "shares": 500,
                     "comments": 200
-                }}
+                }},
+                "prompt": "Main prompt for content generation"
             }}
-            
-            Make sure the content is engaging, educational, and optimized for TikTok's algorithm.
             """
             
             response = requests.post(
@@ -197,7 +370,7 @@ class TikTokAIAgent:
                 headers=self.cerebras_client['headers'],
                 json={
                     "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": plan_prompt}],
                     "max_tokens": 1000,
                     "temperature": 0.8
                 }
@@ -205,79 +378,62 @@ class TikTokAIAgent:
             
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
-                # Extract JSON from response
                 json_start = content.find('{')
                 json_end = content.rfind('}') + 1
                 if json_start != -1 and json_end != 0:
                     plan_data = json.loads(content[json_start:json_end])
                     
-                    return ContentPlan(
+                    plan = ContentPlan(
+                        project_id=self.project_id,
+                        strategy_name=strategy_name,
                         title=plan_data['title'],
                         description=plan_data['description'],
-                        prompt=plan_data['prompt'],
-                        target_duration=plan_data['target_duration'],
+                        topic=topic,
+                        duration=plan_data['duration'],
                         segments=plan_data['segments'],
                         hashtags=plan_data['hashtags'],
-                        posting_time=datetime.now() + timedelta(hours=random.randint(2, 24)),
-                        expected_performance=plan_data['expected_performance']
+                        expected_performance=plan_data['expected_performance'],
+                        prompt=plan_data['prompt'],
+                        created_at=datetime.now().isoformat()
                     )
+                    
+                    # Save plan to database
+                    self._save_content_plan(plan)
+                    
+                    return plan
             
-            logger.error(f"Failed to generate content plan: {response.status_code}")
             return None
             
         except Exception as e:
             logger.error(f"Error generating content plan: {e}")
             return None
     
-    async def generate_optimized_prompt(self, base_prompt: str, strategy: ContentStrategy) -> str:
-        """Generate an optimized prompt for AI generation using Cerebras API"""
-        try:
-            prompt = f"""
-            Optimize this prompt for AI video generation using WAN 2.1/2.2:
-            
-            Original prompt: "{base_prompt}"
-            
-            Strategy: {strategy.niche}
-            Target duration: {strategy.optimal_duration} seconds
-            Psychological triggers: {', '.join(strategy.psychological_triggers)}
-            
-            Apply these optimization techniques:
-            1. Use specific visual descriptors (close-up, macro shot, etc.)
-            2. Include professional lighting and camera movement
-            3. Add cinematic color grading
-            4. Ensure mobile-optimized viewing (1080x1920)
-            5. Include natural movement and realistic physics
-            6. Avoid uncanny valley effects
-            7. Focus on objects, landscapes, or abstract concepts
-            
-            Return only the optimized prompt.
-            """
-            
-            response = requests.post(
-                f"{self.cerebras_client['base_url']}/chat/completions",
-                headers=self.cerebras_client['headers'],
-                json={
-                    "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.7
-                }
-            )
-            
-            if response.status_code == 200:
-                optimized_prompt = response.json()['choices'][0]['message']['content'].strip()
-                logger.info(f"Generated optimized prompt: {optimized_prompt[:100]}...")
-                return optimized_prompt
-            else:
-                logger.error(f"Failed to optimize prompt: {response.status_code}")
-                return base_prompt
-                
-        except Exception as e:
-            logger.error(f"Error optimizing prompt: {e}")
-            return base_prompt
+    def _save_content_plan(self, plan: ContentPlan):
+        """Save content plan to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO content_plans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            plan.project_id,
+            plan.strategy_name,
+            plan.title,
+            plan.description,
+            plan.topic,
+            plan.duration,
+            json.dumps(plan.segments),
+            json.dumps(plan.hashtags),
+            json.dumps(plan.expected_performance),
+            plan.prompt,
+            plan.created_at
+        ))
+        
+        conn.commit()
+        conn.close()
     
     async def create_content(self, plan: ContentPlan) -> Optional[str]:
-        """Create content using MediaBot functions"""
+        """Create content using the plan"""
         try:
             logger.info(f"Creating content: {plan.title}")
             
@@ -289,10 +445,9 @@ class TikTokAIAgent:
                 logger.error("Failed to generate initial image")
                 return None
             
-            # Create video from image
+            # Create video based on content type
             if len(plan.segments) == 1:
-                # Single segment video
-                logger.info("Creating single segment video...")
+                # Single video
                 segment = plan.segments[0]
                 await process_image_to_video(
                     segment['prompt'], 
@@ -303,7 +458,6 @@ class TikTokAIAgent:
                 )
             else:
                 # Multi-segment video
-                logger.info("Creating multi-segment video...")
                 generator = LongVideoGenerator(COMFYUI_URL, WORKFLOW_FILE, GENERATION_TIMEOUT)
                 
                 video_path = await generator.generate_long_video(
@@ -313,7 +467,7 @@ class TikTokAIAgent:
                 )
                 
                 if video_path and os.path.exists(video_path):
-                    logger.info(f"Multi-segment video created: {video_path}")
+                    logger.info(f"Multi-segment content created: {video_path}")
                     return video_path
             
             # Clean up
@@ -327,22 +481,27 @@ class TikTokAIAgent:
             logger.error(f"Error creating content: {e}")
             return None
     
-    async def analyze_performance(self, content_id: str, metrics: Dict) -> Dict:
-        """Analyze content performance and update strategy"""
+    async def update_performance(self, strategy_name: str, content_title: str, metrics: Dict):
+        """Update performance data for strategy learning"""
         try:
-            prompt = f"""
-            Analyze this TikTok content performance and provide optimization recommendations:
+            # Analyze performance using Cerebras API
+            analysis_prompt = f"""
+            Analyze this content performance and provide improvement suggestions:
             
-            Content ID: {content_id}
-            Metrics: {json.dumps(metrics, indent=2)}
+            Strategy: {strategy_name}
+            Content: {content_title}
+            Performance: {json.dumps(metrics, indent=2)}
             
-            Provide analysis in JSON format:
+            Provide ONLY a JSON response with this structure:
             {{
                 "performance_score": 0.85,
                 "strengths": ["list", "of", "strengths"],
                 "weaknesses": ["list", "of", "weaknesses"],
-                "recommendations": ["list", "of", "recommendations"],
-                "next_content_strategy": "strategy_name"
+                "improvements": ["list", "of", "suggestions"],
+                "strategy_adjustments": {{
+                    "duration": "adjustment",
+                    "formula": "adjustment"
+                }}
             }}
             """
             
@@ -351,7 +510,7 @@ class TikTokAIAgent:
                 headers=self.cerebras_client['headers'],
                 json={
                     "model": "cerebras-llama-3.1-8b-instruct",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": analysis_prompt}],
                     "max_tokens": 500,
                     "temperature": 0.5
                 }
@@ -363,130 +522,121 @@ class TikTokAIAgent:
                 json_end = content.rfind('}') + 1
                 if json_start != -1 and json_end != 0:
                     analysis = json.loads(content[json_start:json_end])
-                    self.performance_history.append({
-                        'content_id': content_id,
-                        'metrics': metrics,
-                        'analysis': analysis,
-                        'timestamp': datetime.now().isoformat()
-                    })
+                    
+                    # Save performance data
+                    self._save_performance_data(strategy_name, content_title, metrics, analysis)
+                    
                     return analysis
             
             return {}
             
         except Exception as e:
-            logger.error(f"Error analyzing performance: {e}")
+            logger.error(f"Error updating performance: {e}")
             return {}
     
-    async def generate_daily_content_plan(self) -> List[ContentPlan]:
-        """Generate a complete daily content plan"""
-        try:
-            # Analyze trending topics
-            topics = await self.analyze_trending_topics()
-            if not topics:
-                logger.warning("No trending topics found, using fallback topics")
-                topics = [
-                    "Amazing DIY life hacks you need to know",
-                    "Historical facts that will blow your mind", 
-                    "Incredible ocean discoveries",
-                    "Cultural traditions from around the world"
-                ]
-            
-            content_plans = []
-            
-            # Generate content plans for each strategy
-            for strategy_name, strategy in self.content_strategies.items():
-                for topic in topics[:2]:  # Use top 2 topics per strategy
-                    plan = await self.generate_content_plan(strategy, topic)
-                    if plan:
-                        # Optimize the prompt
-                        plan.prompt = await self.generate_optimized_prompt(plan.prompt, strategy)
-                        content_plans.append(plan)
-                        logger.info(f"Generated plan for {strategy_name}: {plan.title}")
-            
-            return content_plans
-            
-        except Exception as e:
-            logger.error(f"Error generating daily content plan: {e}")
-            return []
+    def _save_performance_data(self, strategy_name: str, content_title: str, metrics: Dict, analysis: Dict):
+        """Save performance data to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO performance_data VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            self.project_id,
+            strategy_name,
+            content_title,
+            json.dumps(metrics),
+            json.dumps(analysis),
+            datetime.now().isoformat()
+        ))
+        
+        conn.commit()
+        conn.close()
     
-    async def execute_content_creation_pipeline(self) -> Dict:
-        """Execute the complete content creation pipeline"""
-        try:
-            logger.info("Starting content creation pipeline...")
-            
-            # Generate daily content plan
-            plans = await self.generate_daily_content_plan()
-            if not plans:
-                return {"status": "error", "message": "No content plans generated"}
-            
-            results = []
-            
-            for i, plan in enumerate(plans):
-                logger.info(f"Processing plan {i+1}/{len(plans)}: {plan.title}")
-                
-                # Create content
-                content_result = await self.create_content(plan)
-                
-                if content_result:
-                    results.append({
-                        "plan": plan,
-                        "status": "success",
-                        "content_path": content_result
-                    })
-                else:
-                    results.append({
-                        "plan": plan,
-                        "status": "failed",
-                        "error": "Content creation failed"
-                    })
-            
-            # Save results
-            self._save_pipeline_results(results)
-            
-            return {
-                "status": "success",
-                "total_plans": len(plans),
-                "successful": len([r for r in results if r["status"] == "success"]),
-                "failed": len([r for r in results if r["status"] == "failed"]),
-                "results": results
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in content creation pipeline: {e}")
-            return {"status": "error", "message": str(e)}
+    def get_performance_history(self, strategy_name: Optional[str] = None) -> List[Dict]:
+        """Get performance history for this project"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        if strategy_name:
+            cursor.execute('''
+                SELECT * FROM performance_data WHERE project_id = ? AND strategy_name = ?
+                ORDER BY created_at DESC
+            ''', (self.project_id, strategy_name))
+        else:
+            cursor.execute('''
+                SELECT * FROM performance_data WHERE project_id = ?
+                ORDER BY created_at DESC
+            ''', (self.project_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        history = []
+        for row in rows:
+            history.append({
+                'project_id': row[0],
+                'strategy_name': row[1],
+                'content_title': row[2],
+                'metrics': json.loads(row[3]),
+                'analysis': json.loads(row[4]),
+                'created_at': row[5]
+            })
+        
+        return history
     
-    def _save_pipeline_results(self, results: List[Dict]):
-        """Save pipeline results to file"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"pipeline_results_{timestamp}.json"
-            
-            with open(filename, 'w') as f:
-                json.dump({
-                    "timestamp": datetime.now().isoformat(),
-                    "results": results
-                }, f, indent=2, default=str)
-            
-            logger.info(f"Pipeline results saved to {filename}")
-            
-        except Exception as e:
-            logger.error(f"Error saving pipeline results: {e}")
+    def export_project_data(self) -> Dict:
+        """Export all project data"""
+        return {
+            'project_id': self.project_id,
+            'strategies': self.get_strategies(),
+            'performance_history': self.get_performance_history()
+        }
 
-# Utility functions for external use
-async def create_tiktok_content_agent() -> TikTokAIAgent:
-    """Create and initialize TikTok AI agent"""
-    return TikTokAIAgent()
+# Utility functions
+async def create_simple_ai_agent(project_id: str) -> SimpleAIAgent:
+    """Create simple AI agent for specific project"""
+    return SimpleAIAgent(project_id)
 
-async def run_daily_content_creation():
-    """Run the daily content creation process"""
-    agent = await create_tiktok_content_agent()
-    return await agent.execute_content_creation_pipeline()
+async def run_simple_content_creation(project_id: str, topic: str, strategy_name: str, user_instructions: str):
+    """Run simple content creation process"""
+    agent = await create_simple_ai_agent(project_id)
+    
+    # Learn strategy if it doesn't exist
+    existing_strategy = agent.get_strategy(strategy_name)
+    if not existing_strategy:
+        learning_result = await agent.learn_strategy(user_instructions, strategy_name)
+        if learning_result['status'] != 'success':
+            return learning_result
+    
+    # Generate content plan
+    plan = await agent.generate_content_plan(topic, strategy_name)
+    
+    if plan:
+        # Create content
+        result = await agent.create_content(plan)
+        return {
+            'status': 'success',
+            'plan': plan.__dict__,
+            'content_result': result
+        }
+    
+    return {'status': 'error', 'message': 'Failed to create content'}
 
 if __name__ == "__main__":
     # Example usage
     async def main():
-        agent = await create_tiktok_content_agent()
-        result = await agent.execute_content_creation_pipeline()
+        project_id = "test_project_123"
+        agent = await create_simple_ai_agent(project_id)
+        
+        # Example: Learn strategy
+        instructions = "Create 10-second hooks leading to 2-minute deep dives for maximum creator rewards"
+        result = await agent.learn_strategy(instructions, "hook_to_payoff")
         print(json.dumps(result, indent=2, default=str))
+        
+        # Example: Generate content plan
+        plan = await agent.generate_content_plan("Ancient Egyptian secrets", "hook_to_payoff")
+        if plan:
+            print(f"Generated plan: {plan.title}")
     
     asyncio.run(main()) 
