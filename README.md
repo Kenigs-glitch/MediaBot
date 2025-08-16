@@ -141,19 +141,15 @@ docker-compose up -d
 
 ### Smart Orientation Detection
 
-The bot automatically detects the optimal image orientation based on your prompt content:
+The bot automatically detects the optimal image orientation based on your prompt:
 
-**Portrait Orientation (720x1280)** is chosen for prompts containing:
-- Portrait, vertical, tall, standing
-- Person, human, figure, character
-- Full body, close up, face, head, bust
-- Selfie, profile, portrait shot
+**Horizontal Orientation (1280x720)** is chosen when the word "horiz" is included in your prompt
+- The "horiz" keyword is automatically removed before processing
+- Example: "a beautiful sunset horiz" → generates horizontal image
 
-**Landscape Orientation (1280x720)** is chosen for prompts containing:
-- Landscape, horizontal, wide, panorama
-- Scenery, nature, cityscape, street
-- Beach, mountain, forest, environment
-- Group, crowd, scene, background, setting
+**Vertical Orientation (720x1280)** is the default for all other prompts
+- Used when "horiz" is not present in the prompt
+- Example: "a portrait of a person" → generates vertical image
 
 ### Video Extension
 

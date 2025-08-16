@@ -12,38 +12,19 @@ DEFAULT_HORIZONTAL_SIZE = (1280, 720)  # width, height for horizontal images
 DEFAULT_VERTICAL_SIZE = (720, 1280)  # width, height for vertical images
 
 def determine_image_size(prompt):
-    """Determine image size based on prompt keywords indicating orientation"""
-    prompt_lower = prompt.lower()
-    
-    # Keywords that suggest vertical orientation
-    vertical_keywords = [
-        'portrait', 'vertical', 'tall', 'standing', 'person', 'human', 'figure',
-        'full body', 'full-body', 'character', 'portrait shot', 'close up',
-        'face', 'head', 'bust', 'torso', 'selfie', 'profile'
-    ]
-    
-    # Keywords that suggest horizontal orientation
-    horizontal_keywords = [
-        'landscape', 'horizontal', 'wide', 'panorama', 'scenery', 'nature',
-        'cityscape', 'street', 'road', 'beach', 'mountain', 'forest',
-        'group', 'crowd', 'scene', 'environment', 'background', 'setting'
-    ]
-    
-    # Count matches
-    vertical_matches = sum(1 for keyword in vertical_keywords if keyword in prompt_lower)
-    horizontal_matches = sum(1 for keyword in horizontal_keywords if keyword in prompt_lower)
-    
-    # Default to vertical for portraits, horizontal for landscapes
-    if vertical_matches > horizontal_matches:
-        return DEFAULT_VERTICAL_SIZE
-    elif horizontal_matches > vertical_matches:
+    """Determine image size based on 'horiz' keyword in prompt"""
+    # Check if 'horiz' is in the prompt (case insensitive)
+    if 'horiz' in prompt.lower():
         return DEFAULT_HORIZONTAL_SIZE
     else:
-        # Default to vertical for ambiguous cases
+        # Default to vertical for all other cases
         return DEFAULT_VERTICAL_SIZE
 
 async def process_text_to_image(prompt, comfyui_url, workflow_file=DREAMSHAPER_WORKFLOW_FILE):
     """Process text-to-image generation using DreamShaper workflow"""
+    # Remove 'horiz' keyword from prompt (case insensitive)
+    cleaned_prompt = prompt.replace('horiz', '').replace('HORIZ', '').replace('Horiz', '').strip()
+    
     target_width, target_height = determine_image_size(prompt)
     
     # Load workflow template
@@ -55,7 +36,7 @@ async def process_text_to_image(prompt, comfyui_url, workflow_file=DREAMSHAPER_W
         if isinstance(obj, dict):
             for key, value in obj.items():
                 if value == "cinematic film still, close up, a robot woman stands tall, half-human half machine, amongst an ancient Greek gallery of paintings and marble, religious symbolism, quantum wavetracing, high fashion editorial, glsl shaders, semiconductors and electronic computer hardware, amazing quality, wallpaper, analog film grain, perfect face skin ":
-                    obj[key] = prompt
+                    obj[key] = cleaned_prompt
                 elif value in [720, "720"]:
                     # Update width or height based on context
                     if key.lower().endswith('width'):
