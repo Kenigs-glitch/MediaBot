@@ -5,3 +5,6 @@ Pillow==10.2.0
 python-magic==0.4.27
 loguru==0.7.2
 opencv-python==4.12.0.88
+# AI Agent dependencies
+dataclasses-json==0.6.3
+aiohttp==3.9.1

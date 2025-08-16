@@ -21,6 +21,14 @@ from long_video import LongVideoGenerator
 from txt2img import generate_image_from_text
 from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access, wait_for_comfyui_ready
 
+# Import AI Agent integration
+try:
+    from bot_ai_integration import register_ai_agent_handlers
+    AI_AGENT_AVAILABLE = True
+except ImportError:
+    AI_AGENT_AVAILABLE = False
+    logger.warning("AI Agent integration not available - missing dependencies")
+
 # Configure loguru
 logger.remove()  # Remove default handler
 logger.add(
@@ -659,5 +667,12 @@ async def admin_handler(event):
         await event.respond(f"Error executing admin command: {str(e)}")
 
 if __name__ == "__main__":
+    # Register AI agent handlers if available
+    if AI_AGENT_AVAILABLE:
+        register_ai_agent_handlers()
+        logger.info("AI Agent integration enabled")
+    else:
+        logger.info("AI Agent integration disabled")
+    
     logger.info("Bot started...")
     bot.run_until_disconnected() 
