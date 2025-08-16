@@ -19,7 +19,7 @@ from media_utils import (
 )
 from long_video import LongVideoGenerator
 from txt2img import generate_image_from_text
-from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access
+from server_utils import restart_comfyui, start_comfyui, check_comfyui_status, force_restart_comfyui, test_docker_access, wait_for_comfyui_ready
 
 # Configure loguru
 logger.remove()  # Remove default handler
@@ -54,8 +54,16 @@ async def ensure_comfyui_ready_for_video(event):
         
         if restart_comfyui():
             logger.info("ComfyUI restarted successfully for video workflow")
-            LAST_WORKFLOW = 'video'
-            return True
+            
+            # Wait for ComfyUI to be ready
+            await event.respond("Waiting for ComfyUI to start up...")
+            if wait_for_comfyui_ready(COMFYUI_URL):
+                logger.info("ComfyUI is ready for video workflow")
+                LAST_WORKFLOW = 'video'
+                return True
+            else:
+                logger.error("ComfyUI did not become ready after restart")
+                return False
         else:
             logger.error("Failed to restart ComfyUI for video workflow")
             return False

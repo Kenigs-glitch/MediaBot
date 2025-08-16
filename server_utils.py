@@ -1,9 +1,34 @@
 import subprocess
 import logging
 import time
+import requests
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+def wait_for_comfyui_ready(url: str, max_wait_time: int = 120) -> bool:
+    """
+    Wait for ComfyUI to be ready to accept requests.
+    Returns True if ComfyUI is ready, False if timeout.
+    """
+    logger.info(f"Waiting for ComfyUI to be ready at {url}...")
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_time:
+        try:
+            # Try to connect to ComfyUI
+            response = requests.get(f"{url}/system_stats", timeout=5)
+            if response.status_code == 200:
+                logger.info("ComfyUI is ready!")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        
+        # Wait 2 seconds before next attempt
+        time.sleep(2)
+    
+    logger.error(f"ComfyUI did not become ready within {max_wait_time} seconds")
+    return False
 
 def restart_comfyui() -> bool:
     """
